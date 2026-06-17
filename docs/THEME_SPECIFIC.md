@@ -1,24 +1,61 @@
 # Theme-Specific Details
 
-Fill this file on hackathon morning when the theme is announced.
+Fill this file as soon as the hackathon theme is announced (takes ~10 minutes).
+
+---
 
 ## Theme Name
+
 [To be filled]
 
-## What Are We Analyzing?
-[To be filled]
+## Problem Statement
 
-## Dataset Structure
-[To be filled - columns, formats, size]
+[What specific problem are we solving? Who is the target user?]
+
+## Dataset
+
+### Source
+[Where does the dataset come from? How large is it?]
+
+### Structure
+| Column | Type | Description |
+|--------|------|-------------|
+| [col]  | [type] | [description] |
+
+### Google Drive Archive
+```bash
+bash scripts/download_data.sh <FILE_ID_HERE>
+```
 
 ## API Endpoints
-[To be filled - specific endpoints for this theme]
 
-## Success Criteria
-[To be filled - how judges evaluate the solution]
+[Document the theme-specific endpoints here once implemented]
 
-## Processor to Implement
-[To be filled - backend/src/processors/analyzer.js logic]
+```
+POST /api/[action]   → [description]
+GET  /api/[result]   → [description]
+```
+
+## Processor Logic
+
+[Describe what `backend/app/processors/analyzer.py` should do]
+
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
+
+## Model
+
+See `docs/MODEL_CONTRACT.md` for the .joblib interface.
+
+Target variable: [name]  
+Prediction type: [classification / regression]  
+Key features: [list]
 
 ## Frontend Visualizations
-[To be filled - what charts/tables Lovable should generate]
+
+[Describe what the Lovable UI should show — charts, tables, alerts]
+
+## Success Criteria
+
+[How will the judges evaluate our solution?]

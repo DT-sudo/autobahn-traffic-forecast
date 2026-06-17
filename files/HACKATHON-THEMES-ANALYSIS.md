@@ -1,414 +1,301 @@
-# 🎯 Анализ тем TUM Hackathon 2026 + Universal Architecture
+# TUM Hackathon 2026 — Theme Analysis
 
-## Твоя Архитектура ИДЕАЛЬНО подходит для ВСЕХ тем!
+All six themes share the same architecture:
 
 ```
-┌─────────────────┐
-│  Любая ТЕМА     │
-├─────────────────┤
-│ Датасет        │ ← Каждая тема получает датасет
-│ (CSV/JSON/     │   (15 лет данных / 1000+ записей / видео / сенсоры)
-│  XLSX)         │
-└────────┬────────┘
-         │
-         ▼ (backend/data/raw/)
-┌─────────────────┐
-│  BACKEND        │  ← Петя обрабатывает
-│ - Processors    │    данные в зависимости от темы
-│ - API endpoints │
-│ - ML/stats      │
-└────────┬────────┘
-         │
-         ▼ (JSON response)
-┌─────────────────┐
-│  FRONTEND       │  ← Саша показывает
-│  (Lovable UI)   │    результаты красиво
-│ - Visualize     │
-│ - Charts        │
-│ - Dashboard     │
-└─────────────────┘
+data/raw/          →  backend/app/processors/  →  backend/app/api/  →  frontend/
+(dataset file)        (theme-specific Python)      (FastAPI JSON)       (Lovable React)
+```
+
+The only things that change between themes are the processor logic, the API endpoints,
+and the frontend visualizations. The project structure, git workflow, and scripts stay identical.
+
+---
+
+## Theme 1 — Autobahn GmbH: Traffic Forecasting
+
+**Goal:** Predict traffic volume on highways A8 East and A93 South, with focus on weekends and Alpine holiday corridors.
+
+**Datasets:**
+- Historical traffic data (CSV/JSON) — datetime, location, volume, speed
+- Public holiday calendar (CSV)
+- Weather data (optional)
+
+**Processor — `backend/app/processors/traffic_analyzer.py`:**
+```python
+# - Parse traffic CSV
+# - Detect weekly/holiday patterns
+# - Forecast next day / next weekend
+# - Time-series analysis (moving averages, trend decomposition)
+```
+
+**API endpoints:**
+```
+POST /api/analyze   → traffic forecast for given date range
+GET  /api/forecast  → next weekend prediction
+GET  /api/patterns  → detected traffic patterns
+```
+
+**Frontend visualizations:**
+- Timeline chart: hourly traffic volume
+- Heatmap: intensity by day of week
+- Prediction table: next-day forecast
+- Alert banner: expected congestion peaks
+
+**Data layout:**
+```
+data/raw/
+├── traffic_data.csv        (datetime, location, volume, speed)
+├── holidays.csv            (date, name)
+└── weather.json            (optional)
+
+data/processed/
+├── patterns.json           (detected regularities)
+└── forecast.json           (predictions)
 ```
 
 ---
 
-## 📊 ВСЕ ТЕМЫ РАЗОБРАНЫ
+## Theme 2 — LBenergy GmbH: Intelligent Building Control
 
-### 1️⃣ **Autobahn GmbH** - Traffic Forecasting
-**Что:**
-- Прогнозирование трафика на автобанах A8 East & A93 South
-- Анализ паттернов в выходные и праздники (Alpine holiday corridors)
+**Goal:** Optimize heating in tents and temporary structures — predict when to switch on, detect failures, visualize savings.
 
-**Датасеты:**
-- Исторические данные трафика (CSV/JSON)
-- Календарь праздников
-- Погодные данные (опционально)
+**Datasets:**
+- Temperature sensor data (JSON/CSV) — timestamp, temperature, humidity
+- Event schedule — when people arrive and leave
+- Historical energy consumption
 
-**Backend (Петя):**
-```
-processors/trafficAnalyzer.js:
-- Parse датасет трафика
-- Detect паттерны (выходные vs рабочие дни)
-- Forecast трафик на следующий день/неделю
-- Time-series analysis
-
-api/routes.js:
-POST /api/analyze → прогноз трафика
-GET /api/forecast → prediction для выходных
-GET /api/patterns → выявленные паттерны
+**Processor — `backend/app/processors/temperature_optimizer.py`:**
+```python
+# - Parse sensor data
+# - Correlate with event schedule
+# - Predict optimal heater activation time
+# - Detect anomalies (sensor failure, heater fault)
+# - Calculate energy savings in kWh and EUR
 ```
 
-**Frontend (Саша через Lovable):**
+**API endpoints:**
 ```
-- Timeline chart: трафик по часам
-- Heatmap: интенсивность по дням
-- Prediction table: прогноз на следующий день
-- Alert system: когда ожидается пик
+POST /api/predict    → when to activate heater
+GET  /api/anomalies  → detected faults
+GET  /api/savings    → energy saved (kWh / EUR)
 ```
 
-**Структура данных:**
-```
-backend/data/raw/
-├── traffic_data.csv  (datetime, location, volume, speed)
-├── weather.json      (optional)
-└── holidays.csv      (dates, names)
+**Frontend visualizations:**
+- Temperature timeline (past + current)
+- Heater schedule with predicted on/off times
+- Anomaly alerts (red flags)
+- ROI dashboard: energy saved
 
-backend/data/processed/
-├── patterns.json     (выявленные закономерности)
-└── forecast.json     (прогнозы)
+**Data layout:**
+```
+data/raw/
+├── sensor_data.json        (timestamp, temperature, humidity)
+├── heater_logs.csv         (on/off events, energy, timestamp)
+└── schedule.json           (event calendar)
+
+data/processed/
+├── predictions.json        (activation schedule)
+└── anomalies.json          (detected faults)
 ```
 
 ---
 
-### 2️⃣ **LBenergy GmbH** - Intelligent Building Control
-**Что:**
-- Оптимизация отопления в палатках и временных сооружениях
-- PREDICT (когда включать), DETECT (сбои), VISUALIZE (экономия)
+## Theme 3 — MTU Aero Engines: Autonomous Rover + Person Detection
 
-**Датасеты:**
-- Данные датчиков температуры (JSON/CSV)
-- Расписание мероприятий (когда люди приходят/уходят)
-- Историческое потребление энергии
+**Goal:** Robot inspects a work zone for safety — detect personnel, verify PPE compliance, navigate with SLAM, fuse sensors.
 
-**Backend (Петя):**
-```
-processors/temperatureOptimizer.js:
-- Parse sensor data
-- Correlate с расписанием
-- Predict когда включать heater
-- Detect аномалии (сбой датчика или heater'а)
-- Calculate energy savings
+**Datasets:**
+- Video files from robot camera (MP4 or frames)
+- LiDAR point clouds (JSON)
+- Sensor telemetry (distance, temperature)
 
-api/routes.js:
-POST /api/predict → когда включить
-GET /api/anomalies → обнаруженные проблемы
-GET /api/savings → сэкономлено энергии/€
-```
+**Processors:**
+```python
+# backend/app/processors/person_detector.py
+# - Load video frames / images
+# - Run YOLOv8 object detection
+# - Verify PPE compliance (helmet, gloves, suit)
+# - Track individuals to avoid duplicates
+# - Generate safety compliance report
 
-**Frontend (Саша):**
-```
-- Temperature timeline: прошлые + текущие значения
-- Heater schedule: когда должен включиться
-- Anomaly alerts: красные флаги
-- ROI dashboard: сколько сэкономили
+# backend/app/processors/slam_processor.py
+# - Process LiDAR point clouds
+# - Detect obstacles
+# - Generate occupancy map
 ```
 
-**Структура данных:**
+**API endpoints:**
 ```
-backend/data/raw/
-├── sensor_data.json  (timestamp, temperature, humidity)
-├── heater_logs.csv   (on/off, energy, timestamp)
-└── schedule.json     (event calendar)
-
-backend/data/processed/
-├── predictions.json  (когда включать)
-└── anomalies.json    (сбои)
+POST /api/analyze         → analyze video / sensor data
+GET  /api/persons         → detected person count + timestamps
+GET  /api/safety-report   → PPE compliance status
+GET  /api/map             → robot path + obstacle map
 ```
 
----
+**Frontend visualizations:**
+- Video player with bounding boxes around detected persons
+- Compliance table: person ID, PPE status (pass / fail)
+- 2D map: robot path + obstacles
+- Alert: person detected without required PPE
 
-### 3️⃣ **MTU Aero Engines** - Autonomous Rover + Person Detection
-**Что:**
-- Робот проверяет рабочую зону на безопасность
-- DETECT персоны и проверяет что они в защите (PPE)
-- SLAM навигация
-- Sensor fusion и visualization
-
-**Датасеты:**
-- Видеофайлы с камер робота (MP4 или frames)
-- LiDAR данные (point clouds, JSON)
-- Sensor telemetry (距離, temperature)
-
-**Backend (Петя):**
+**Data layout:**
 ```
-processors/personDetector.js:
-- Load video frames / images
-- Run YOLOv8 для detection человека
-- Check PPE compliance (hat, gloves, suit)
-- Track personas (avoid duplicates)
-- Generate safety report
+data/raw/
+├── video_feed.mp4           (robot camera)
+├── lidar_data.json          (point clouds)
+└── sensor_telemetry.csv     (distance, temperature)
 
-processors/slamProcessor.js:
-- Process LiDAR point clouds
-- Detect obstacles
-- Generate map
-
-api/routes.js:
-POST /api/analyze → analyze video
-GET /api/persons → count людей
-GET /api/safety-report → compliance
-GET /api/map → robot path + obstacles
-```
-
-**Frontend (Саша):**
-```
-- Video player: show detected persons (bounding boxes)
-- Safety compliance table: имя, PPE status (✓ или ✗)
-- Live map: robot location + obstacles
-- Alert: если кто-то без защиты
-```
-
-**Структура данных:**
-```
-backend/data/raw/
-├── video_feed.mp4        (robot camera)
-├── lidar_data.json       (point clouds)
-└── sensor_telemetry.csv  (distance, temp)
-
-backend/data/processed/
-├── detected_persons.json (count, timestamps)
-├── ppe_report.json       (compliance status)
-└── map.json              (obstacles, path)
+data/processed/
+├── detected_persons.json    (count, timestamps)
+├── ppe_report.json          (compliance status per person)
+└── map.json                 (obstacles, path)
 ```
 
 ---
 
-### 4️⃣ **TUM Finance** - Executive Compensation Analysis
-**Что:**
-- Анализ зарплат CEO/CFO против peer companies
-- Обнаружение аномалий в компенсации
-- Benchmarking
+## Theme 4 — TUM Finance: Executive Compensation Analysis
 
-**Датасеты:**
-- 15 лет данных о зарплатах (CSV)
-- Финансовые показатели компаний (размер, сектор, прибыль)
-- Peer group данные
+**Goal:** Analyze CEO/CFO compensation against peer companies, detect anomalies, provide benchmarking over 15 years.
 
-**Backend (Петя):**
-```
-processors/compensationAnalyzer.js:
-- Parse compensation data (base salary, bonuses, stock options)
-- Group по peer companies
-- Calculate median/mean/percentiles
-- Detect outliers (ML: isolation forest)
-- Benchmark against peers
+**Datasets:**
+- 15 years of compensation data (CSV) — base salary, bonus, stock options
+- Company financial metrics — revenue, sector, headcount
+- Peer group definitions
 
-api/routes.js:
-POST /api/analyze → analyze compensation
-GET /api/benchmarks → compare vs peers
-GET /api/anomalies → unusual structures
-GET /api/trends → как менялось за годы
+**Processor — `backend/app/processors/compensation_analyzer.py`:**
+```python
+# - Parse compensation CSV
+# - Group by peer companies
+# - Calculate median, mean, percentiles
+# - Detect outliers (Isolation Forest)
+# - Benchmark individual company vs peer group
 ```
 
-**Frontend (Саша):**
+**API endpoints:**
 ```
-- Company search: find and analyze
-- Compensation breakdown: базовая/бонусы/опции
-- Peer comparison: box plot vs peers
-- Red flags: аномалии подсвечены красным
-- Trend chart: как менялось за 15 лет
+POST /api/analyze      → full compensation analysis
+GET  /api/benchmarks   → company vs peer comparison
+GET  /api/anomalies    → unusual compensation structures
+GET  /api/trends       → 15-year trend for a company
 ```
 
-**Структура данных:**
-```
-backend/data/raw/
-├── compensation_data.csv (company, year, CEO_salary, bonus, stock, ...)
-└── company_metrics.csv   (company, revenue, sector, employees)
+**Frontend visualizations:**
+- Company search and selector
+- Compensation breakdown: base / bonus / stock options
+- Peer comparison: box plot vs peer group
+- Red-flag highlights: detected anomalies
+- Trend line chart: 15-year compensation history
 
-backend/data/processed/
-├── benchmarks.json       (peer group stats)
-├── anomalies.json        (unusual cases)
-└── analysis.json         (detailed stats)
+**Data layout:**
+```
+data/raw/
+├── compensation_data.csv   (company, year, CEO_salary, bonus, stock)
+└── company_metrics.csv     (company, revenue, sector, employees)
+
+data/processed/
+├── benchmarks.json         (peer group statistics)
+├── anomalies.json          (flagged cases)
+└── analysis.json           (detailed stats)
 ```
 
 ---
 
-### 5️⃣ **Würth Elektronik** - Student-Industry Platform
-**Что:**
-- Scalable communication platform
-- Связь студентов ↔ компании ↔ educators
-- Follow-up после hackathon
+## Theme 5 — Würth Elektronik: Student–Industry Platform
 
-**Датасеты:**
-- Student profiles (CSV)
-- Company representatives (JSON)
-- Event data (who attended, interests)
+**Goal:** Scalable communication platform connecting students, companies, and educators after the hackathon.
 
-**Backend (Петя):**
-```
-processors/networkAnalyzer.js:
-- Parse student/company data
-- Match interests
-- Track engagement
+**Datasets:**
+- Student profiles (CSV) — name, skills, interests, contact
+- Company representatives (JSON) — company, open positions, interests
+- Event attendance data
 
-api/routes.js:
-POST /api/users → register студент или компания
-POST /api/connect → match студента с компанией
-GET /api/recommendations → suggestions
-POST /api/followup → stay in touch
+**Processor — `backend/app/processors/network_analyzer.py`:**
+```python
+# - Parse student and company data
+# - Match based on skills / interests
+# - Track engagement and connections
 ```
 
-**Frontend (Саша):**
+**API endpoints:**
 ```
-- Student profile: skills, interests
-- Company search: find opportunities
-- Recommendations: "you might like..."
-- Follow-up: resources, documents, contacts
+POST /api/users           → register student or company
+POST /api/connect         → match student with company
+GET  /api/recommendations → suggested connections
+POST /api/followup        → save follow-up action
 ```
 
-**Структура данных:**
-```
-backend/data/raw/
-├── students.csv   (name, skills, interests, contact)
-└── companies.json (company, reps, opportunities)
+**Frontend visualizations:**
+- Student profile card: skills, interests
+- Company search and opportunity list
+- Recommendations: "you might be interested in..."
+- Follow-up tracker: saved contacts and resources
 
-backend/data/processed/
-├── matches.json   (student-company recommendations)
-└── engagement.json (who connected with whom)
+**Data layout:**
+```
+data/raw/
+├── students.csv            (name, skills, interests, contact)
+└── companies.json          (company, reps, opportunities)
+
+data/processed/
+├── matches.json            (student–company recommendations)
+└── engagement.json         (who connected with whom)
 ```
 
 ---
 
-### 6️⃣ **TUM Network** - Privacy-Preserving AI (TEEs)
-**Что:**
-- Confidential AI tutor для студентов
-- Multiple parties, no data sharing
-- TEEs (Trusted Execution Environments)
+## Theme 6 — TUM Network: Privacy-Preserving AI (TEEs)
 
-**Датасеты:**
-- Student learning data (encrypted, JSON)
+**Goal:** Confidential AI tutor for students using Trusted Execution Environments — analyze learning data without exposing raw records.
+
+**Datasets:**
+- Student learning data (encrypted JSON)
 - Course materials
 - Assessment results
 
-**Backend (Петя):**
-```
-processors/privacyAnalyzer.js:
-- Process encrypted student data
-- Generate insights без sharing raw data
-- Aggregate statistics
-
-api/routes.js:
-POST /api/analyze → analyze (encrypted)
-GET /api/insights → aggregate insights only
-GET /api/recommendations → learning suggestions
+**Processor — `backend/app/processors/privacy_analyzer.py`:**
+```python
+# - Process encrypted/sensitive student data
+# - Produce aggregate insights only (no PII in output)
+# - Generate learning recommendations per cohort
 ```
 
-**Frontend (Саша):**
+**API endpoints:**
 ```
-- Student dashboard: progress (без sensitive data)
-- Learning recommendations
-- Aggregated class stats (no individual data exposed)
+POST /api/analyze        → analyze (with privacy constraints)
+GET  /api/insights       → aggregate stats only (no individual records)
+GET  /api/recommendations → cohort-level learning suggestions
 ```
 
-**Структура данных:**
+**Frontend visualizations:**
+- Student progress dashboard (aggregated only, no raw scores)
+- Class-level statistics (no individual exposure)
+- Learning path recommendations
+
+**Data layout:**
 ```
-backend/data/raw/
+data/raw/
 ├── student_data_encrypted.json
 └── course_materials.json
 
-backend/data/processed/
-├── aggregate_stats.json  (only aggregates, no PII)
+data/processed/
+├── aggregate_stats.json    (cohort-level aggregates, no PII)
 └── insights.json
 ```
 
 ---
 
-## 🎯 ВЫВОД: Твоя структура идеальна!
+## Summary
 
-Все 6 тем используют одинаковую архитектуру:
+All six themes use the identical project structure. The only theme-specific work is:
 
-```
-┌─────────────────────────────────────────────────┐
-│  UNIVERSAL STRUCTURE (подходит для ВСЕХ тем)   │
-├─────────────────────────────────────────────────┤
-│                                                  │
-│  1. backend/data/raw/                          │
-│     └─ Получаешь датасет в любом формате       │
-│                                                  │
-│  2. backend/src/processors/                    │
-│     └─ Обрабатываешь его (специфично для темы) │
-│                                                  │
-│  3. backend/src/api/                           │
-│     └─ Exponируешь результаты через API        │
-│                                                  │
-│  4. frontend/ (Lovable)                        │
-│     └─ Показываешь красиво                      │
-│                                                  │
-└─────────────────────────────────────────────────┘
-```
+| File | What to adapt |
+|------|---------------|
+| `backend/app/processors/analyzer.py` | Processing and prediction logic |
+| `backend/app/api/routes.py` | Endpoint names and request/response shapes |
+| `scripts/train_model.py` | Target variable, features, algorithm |
+| `docs/THEME_SPECIFIC.md` | Dataset columns, success criteria |
+| `docs/MODEL_CONTRACT.md` | Model input/output interface |
+| `CLAUDE.md` — Mission | Theme description |
 
-**Различия между темами:**
-- ✅ ДА: какой датасет, как анализировать, какой output
-- ❌ НЕТ: структура кода, архитектура, git workflow
-
----
-
-## 🚀 ЧТО ДЕЛАТЬ ПОСЛЕ УЗНАВАНИЯ ТЕМЫ
-
-Как только узнаешь тему (9:00 AM день хакатона):
-
-1. **Обнови `docs/THEME_SPECIFIC.md`:**
-   ```markdown
-   # [НАЗВАНИЕ ТЕМЫ]
-   
-   ## Что анализируем?
-   ...
-   
-   ## Датасет структура
-   ...
-   
-   ## API endpoints
-   ...
-   
-   ## Как оценивают успех?
-   ...
-   ```
-
-2. **Обнови `CLAUDE.md`:**
-   - Mission раздел с конкретной целью
-   - API endpoints (специфичные для темы)
-
-3. **Петя начинает:**
-   ```bash
-   # backend/src/processors/analyzer.js
-   # Специфичная логика для темы
-   
-   # backend/src/api/routes.js
-   # API endpoints для темы
-   ```
-
-4. **Саша начинает:**
-   - Lovable UI для входных данных
-   - Visualization для результатов
-
----
-
-## 📋 ФИНАЛЬНЫЙ ЧЕКЛИСТ
-
-Перед хакатоном:
-- [ ] Прочитал все 6 тем
-- [ ] Понял что структура подходит для всех
-- [ ] Создал универсальный репо (TEAM-LEAD-SETUP-UPDATED.md)
-- [ ] Все готово к быстрому обновлению когда узнаем тему
-
-День хакатона:
-- [ ] Узнали тему
-- [ ] Обновили docs/THEME_SPECIFIC.md
-- [ ] Обновили CLAUDE.md
-- [ ] Петя начал писать processors/
-- [ ] Саша начал создавать UI в Lovable
-- [ ] Маша положила датасет в backend/data/raw/
-- [ ] PROFIT! 🚀
-
----
-
-**Ты готов к ЛЮБОЙ теме!** 💪
+Everything else — structure, scripts, git workflow, frontend connection — stays the same.
