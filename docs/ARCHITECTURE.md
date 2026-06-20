@@ -34,22 +34,22 @@
 
 ```
 1. PREPARATION (run once before hackathon demo)
-   data/raw/dataset.csv
+   data/raw/traffic_hourly.csv
        ↓ scripts/clean_data.py
-   data/processed/cleaned_dataset.csv
-       ↓ scripts/build_features.py
+   data/processed/cleaned_traffic.csv
+       ↓ scripts/build_features.py  (adds holiday/calendar/historical features)
    data/processed/features.csv
        ↓ scripts/train_model.py
    models/prediction_pipeline.joblib
 
-2. RUNTIME
-   Frontend (user input)
-       ↓ POST /api/analyze
-   FastAPI → processors/analyzer.py
-       ↓ load .joblib, run prediction
-   JSON response
+2. RUNTIME — Traffic Forecasting
+   Frontend (user selects corridor + direction + date range)
+       ↓ POST /api/forecast
+   FastAPI → processors/traffic_analyzer.py
+       ↓ load .joblib, build feature vector per date×slot, run prediction
+   JSON: [{ date, time_slot, category 1–5, color, estimated_vehicles, explanation }]
        ↓
-   Frontend renders charts/tables/alerts
+   Frontend renders color-coded Traffic Calendar + Peak Day alerts
 ```
 
 ## Technology Stack
@@ -84,16 +84,30 @@ main      ← final deliverable (merge at end of hackathon)
 dev       ← active development (all team members commit here)
 ```
 
-## What Changes Per Theme
+## Theme: Traffic Forecasting (A8 East / A93 South)
 
-| File | What to change |
-|------|----------------|
-| `backend/app/processors/analyzer.py` | Theme-specific processing logic |
-| `backend/app/api/routes.py` | Theme-specific API endpoints |
-| `scripts/train_model.py` | Target variable, features, model type |
-| `docs/THEME_SPECIFIC.md` | Dataset description, success criteria |
-| `docs/MODEL_CONTRACT.md` | Model input/output interface |
-| `CLAUDE.md` | Mission section |
+```
+2. RUNTIME — Traffic Forecasting
+   Frontend (user selects corridor + direction + date range)
+       ↓ POST /api/forecast
+   FastAPI → processors/traffic_analyzer.py
+       ↓ load .joblib, build feature vector per date×slot, run prediction
+   JSON response: [{ date, time_slot, category 1–5, color, estimated_vehicles, explanation }]
+       ↓
+   Frontend renders color-coded Traffic Calendar + Peak Day alerts
+```
+
+## Theme-Specific Files
+
+| File | What it does |
+|------|-------------|
+| `backend/app/processors/traffic_analyzer.py` | Builds feature vectors, calls model, formats output |
+| `backend/app/api/routes.py` | `/api/forecast`, `/api/calendar`, `/api/peak-days`, `/api/recommendations` |
+| `scripts/train_model.py` | Trains GradientBoosting classifier (category 1–5) + volume regressor |
+| `docs/THEME_SPECIFIC.md` | Full dataset structure, feature list, success criteria |
+| `docs/MODEL_CONTRACT.md` | Model input/output contract with field types |
+| `docs/DATA_STRUCTURE.md` | Raw CSV columns, processing pipeline, aggregation logic |
+| `CLAUDE.md` | Mission + traffic-specific patterns and examples |
 
 ## What Never Changes
 
