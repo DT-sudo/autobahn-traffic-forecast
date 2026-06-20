@@ -11,7 +11,7 @@ Color-coded daily traffic forecasts (green → dark red) for up to one year ahea
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| ML model | ✅ Done | GradientBoosting classifier + regressor, 25 features, trained 2023–2025 |
+| ML model | ✅ Done | GradientBoosting regressor + percentile thresholds, 25 features, trained 2023–2025 |
 | Backend API | ✅ Done | FastAPI — `/forecast`, `/calendar`, `/peak-days`, `/recommendations` |
 | Frontend | ✅ Done | React/TanStack calendar UI, fetches live from backend |
 
@@ -49,16 +49,16 @@ cd ..
 
 ### 3. Download the trained model
 
-The pre-trained model (2.9 MB) is stored on Google Drive (not in git).
+The pre-trained model (0.7 MB, v2.0.0) is stored on Google Drive (not in git).
 Download it and place it at `models/prediction_pipeline.joblib`:
 
 ```bash
 pip install gdown
-gdown "1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB" -O models/prediction_pipeline.joblib
+gdown "1dnAvcgApUMZQ03NfQzAhNHIaldAgArxI" -O models/prediction_pipeline.joblib
 ```
 
 Or download manually from:
-**https://drive.google.com/file/d/1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB/view**
+**https://drive.google.com/file/d/1dnAvcgApUMZQ03NfQzAhNHIaldAgArxI/view**
 → save the file as `models/prediction_pipeline.joblib`
 
 ---
