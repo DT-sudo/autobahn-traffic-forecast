@@ -1,3 +1,15 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+The frontend job is to parse the data like the following 4 files into a nice UI
+- ./data/examples/A8easttraffic.csv  
+- ./data/examples/A8westtraffic.csv
+- ./data/examples/A93northtraffic.csv
+- ./data/examples/A93southtraffic.csv
+
+Your job is to generate generate those 4 files with accurate data. 
+
 # Hackathon Project — Claude Code Guide
 
 ## Mission
@@ -9,12 +21,29 @@ Goal: Replace the manual expert-driven Traffic Calendar (Fahrkalender) with a da
 ## Architecture
 
 ```
-data/raw/          →  scripts/          →  backend/app/     →  frontend/
-(CSV / JSON /         clean_data.py        processors/          (Lovable React)
- XLSX — not in git)   build_features.py    traffic_analyzer.py
-                       train_model.py    →  models/
-                                            prediction_pipeline.joblib
+data/raw/        →  scripts/          →  data/processed/   →  models/            →  backend/app/        →  frontend/
+(CSV — not in git)  clean_data.py        cleaned_*.csv        prediction_         api/routes.py          src/lib/traffic.ts
+                    build_features.py    features.csv         pipeline.joblib     processors/            (Lovable React,
+                    train_model.py       *_thresholds.json    (bundle, not        traffic_analyzer.py     calls localhost:8000)
+                                         baselines.json        in git)            feature_builder.py
 ```
+
+**Single source of truth for features:** `backend/app/processors/feature_builder.py` is
+imported by BOTH the training scripts (`scripts/build_features.py`, `scripts/train_model.py`)
+AND the live inference path (`traffic_analyzer.py`). `FEATURE_COLUMNS` defines the exact 25
+columns and order the model expects — training and inference cannot drift because they share
+this one module. Change a feature here and you must retrain the model. The scripts add
+`repo_root` to `sys.path` and import it as `backend.app.processors.feature_builder`.
+
+**Model = a bundle dict, not a bare estimator.** `prediction_pipeline.joblib` deserializes to
+`{regressor, slot_thresholds, daily_thresholds, baselines, training_info}`. A single
+`GradientBoostingRegressor` predicts slot *volume* (vehicles); all 1–5 traffic categories
+(colors) are then DERIVED from that volume via percentile thresholds (`assign_category`).
+Slot category = slot volume vs per-slot thresholds; **daily** category = daily *total* vs
+per-corridor/direction `daily_thresholds` (NOT max-of-slots — that over-inflated red days).
+This keeps the displayed color consistent with the displayed vehicle count. If the .joblib is
+missing, `traffic_analyzer` logs a warning and serves deterministic mock data (`_mock_predict`)
+so the API still works without the model.
 
 **Frontend stack (Lovable-generated):**
 TypeScript 5.8 · React 19 · TanStack Start/Router · TanStack React Query ·
@@ -29,9 +58,10 @@ TUM-Hackathon/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                    ← FastAPI entry point
-│   │   ├── api/routes.py              ← API endpoints
+│   │   ├── api/routes.py              ← API endpoints (mounted under /api)
 │   │   └── processors/
-│   │       └── traffic_analyzer.py   ← Traffic forecasting logic
+│   │       ├── feature_builder.py    ← Shared feature engine (FEATURE_COLUMNS, holidays, categories)
+│   │       └── traffic_analyzer.py   ← Inference: loads bundle, builds rows, derives categories
 │   ├── tests/
 │   └── requirements.txt
 ├── frontend/                          ← Lovable React app (committed)
@@ -88,6 +118,9 @@ TUM-Hackathon/
 - Never commit `.joblib` model files (> 100 MB limit; store on Google Drive)
 - Never run model training inside the app — load the pre-built `.joblib` only
 - Never push to `main` directly — use `dev` branch
+- Never force-push / rebase / amend already-pushed commits: `frontend/` is connected to **Lovable**
+  (see `frontend/AGENTS.md`); rewriting pushed history corrupts the user's Lovable project history.
+  Commits pushed to the connected branch sync back to Lovable — keep the branch in a working state.
 
 ## Essential Commands
 
@@ -100,22 +133,37 @@ pip install -r requirements.txt
 ```
 
 ### Run backend
+`main.py` uses absolute imports (`from app.api.routes ...`), so `backend/` must be on the
+Python path — run from the repo root with `PYTHONPATH=backend`:
 ```bash
-uvicorn backend.app.main:app --reload --port 8000
+PYTHONPATH=backend backend/.venv/bin/python -m uvicorn backend.app.main:app --reload --port 8000
+# Equivalent: cd backend && uvicorn app.main:app --reload --port 8000
 # API docs: http://localhost:8000/docs
 ```
 
-### Data preparation (run once, in order)
+### Run frontend (Lovable React app — uses bun; npm also works)
 ```bash
-bash scripts/download_data.sh <GOOGLE_DRIVE_FILE_ID>
-python scripts/clean_data.py
-python scripts/build_features.py
-python scripts/train_model.py
+cd frontend
+bun install          # or: npm install  (both bun.lock and package-lock.json are committed)
+bun run dev          # Vite dev server on http://localhost:5173
+bun run lint         # eslint .
+bun run format       # prettier --write .
+bun run build        # production build
+```
+The frontend hardcodes the backend URL as `API_URL = "http://localhost:8000"` in
+`src/lib/traffic.ts` — change it there, not via env var.
+
+### Data preparation (run once, in order — all scripts run from repo root)
+```bash
+bash scripts/download_data.sh <GOOGLE_DRIVE_FILE_ID>   # → data/raw/ (semicolon-separated CSVs)
+python scripts/clean_data.py        # data/raw/ → data/processed/cleaned_traffic_hourly.csv, cleaned_weather_hourly.csv
+python scripts/build_features.py    # → features.csv, category_thresholds.json, daily_thresholds.json, baselines.json
+python scripts/train_model.py       # → models/prediction_pipeline.joblib (the bundle dict)
 ```
 
 ### Tests
 ```bash
-pytest backend/tests/
+pytest backend/tests/        # NOTE: tests/ currently holds only .gitkeep — no tests written yet
 ```
 
 ## API Pattern
@@ -142,31 +190,51 @@ async def get_forecast(request: ForecastRequest):
             request.date_from, request.date_to
         )
         return {"success": True, "forecast": result}
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))   # validation
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 ```
 
+All routes are mounted under the `/api` prefix (`app.include_router(router, prefix="/api")`).
+Endpoints accept/return `corridor` ∈ {A8E, A93S}, `direction` ∈ {outbound, inbound}; max range 366 days.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET  | `/api/health` | status + `model_loaded` flag |
+| POST | `/api/forecast` | slot-level forecast for a date range (6 slots/day) |
+| GET  | `/api/calendar?year=&corridor=&direction=` | full-year daily categories grouped by month (calendar grid) |
+| GET  | `/api/peak-days?corridor=&direction=&top_n=&year=` | top-N highest-risk days |
+| POST | `/api/recommendations` | per-day advice tailored to `user_type` (tourist/logistics/local_resident/tourism_business) |
+| GET  | `/api/analysis/summary?corridor=&direction=` | historical averages from bundled baselines (503 if model not loaded) |
+
+The shared analyzer is a lazy module-level singleton: always get it via `get_analyzer()` (don't
+construct `TrafficAnalyzer()` directly) so the model loads once.
+
 ## Model Loading Pattern
+
+The .joblib is a **bundle dict** loaded once by `TrafficAnalyzer`; you don't call
+`model.predict()` on it directly. The regressor predicts volume; categories are derived. To add
+inputs, change `feature_builder.FEATURE_COLUMNS` and retrain — `traffic_analyzer` builds the
+feature row through the same module so the two stay in lockstep.
 
 ```python
 import joblib
-import pandas as pd
 from pathlib import Path
 
-model = joblib.load(Path("models/prediction_pipeline.joblib"))
+bundle = joblib.load(Path("models/prediction_pipeline.joblib"))
+# bundle keys: regressor, slot_thresholds, daily_thresholds, baselines, training_info
+regressor = bundle["regressor"]            # GradientBoostingRegressor → predicts slot VOLUME
 
-input_df = pd.DataFrame([{
-    "corridor": "A8E",
-    "direction": "outbound",
-    "day_of_week": 5,          # Saturday
-    "month": 8,
-    "is_school_holiday_bavaria": 1,
-    "days_until_holiday_start": 0,
-    "is_summer_season": 1,
-    "is_weekend": 1,
-    "is_public_holiday": 0,
-}])
-prediction = model.predict(input_df)   # returns traffic category 1–5
+from app.processors.feature_builder import FEATURE_COLUMNS, assign_category, build_feature_row
+from datetime import date
+import pandas as pd
+
+row = build_feature_row(date(2026, 8, 1), time_slot=4, corridor="A8E",
+                        direction="outbound", baselines=bundle["baselines"])
+X = pd.DataFrame([[row[c] for c in FEATURE_COLUMNS]], columns=FEATURE_COLUMNS)
+volume = max(0, round(float(regressor.predict(X)[0])))
+category = assign_category(volume, bundle["slot_thresholds"]["A8E|outbound|4"])  # 1–5
 ```
 
 ## Frontend → Backend Connection
@@ -184,8 +252,15 @@ const res = await fetch("http://localhost:8000/api/forecast", {
   }),
 });
 const { success, forecast } = await res.json();
-// forecast: [{ date, time_slot, category, volume, color, explanation }, ...]
+// forecast: one entry PER DAY, each with a nested time_slots[] array:
+// [{ date, day_of_week, daily_category, daily_color, daily_color_hex,
+//    estimated_daily_vehicles, pattern_type,
+//    time_slots: [{ slot, label, category, color, color_hex,
+//                   estimated_vehicles, confidence, explanation:[...] }, ...] }]
 ```
+Frontend API calls live in `src/lib/traffic.ts`, which maps the backend's 1–5 category to its
+own `TrafficLevel` union (low/increased/moderate/heavy/extreme). The single route is
+`src/routes/index.tsx`.
 
 ## When Working on This Project
 

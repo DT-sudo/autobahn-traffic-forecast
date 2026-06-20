@@ -3,8 +3,10 @@
 # ========================================
 data/raw/*
 data/processed/*
+data/export/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/export/.gitkeep
 !data/examples/
 
 # Uploaded files via API
