@@ -3,67 +3,93 @@
 **Challenge:** Automated Traffic Forecasting for Alpine Holiday Corridors A8 East & A93 South
 **Host:** Die Autobahn GmbH des Bundes
 
-Replaces the manual expert-driven Traffic Calendar (Fahrkalender) with a data-driven ML system that generates daily color-coded forecasts (green → dark red) for up to one year ahead.
+Color-coded daily traffic forecasts (green → dark red) for up to one year ahead — replacing the manual expert-driven Traffic Calendar with a data-driven ML system.
 
 ---
 
-## Current Status
+## What's Built
 
-| Component | Status |
-|-----------|--------|
-| Data cleaning (`clean_data.py`) | Done — 283,375 rows, 2023–2025 |
-| Feature engineering (`build_features.py`) | Done — 25,753 slot-level rows |
-| ML model (`train_model.py`) | Done — `models/prediction_pipeline.joblib` (2.9 MB) |
-| Backend API (`backend/app/`) | Done — FastAPI + all endpoints |
-| Frontend (`frontend/`) | Pending — Lovable app to be added |
+| Component | Status | Description |
+|-----------|--------|-------------|
+| ML model | ✅ Done | GradientBoosting classifier + regressor, 25 features, trained 2023–2025 |
+| Backend API | ✅ Done | FastAPI — `/forecast`, `/calendar`, `/peak-days`, `/recommendations` |
+| Frontend | ✅ Done | React/TanStack calendar UI, fetches live from backend |
 
 ---
 
-## Tech Stack
+## Quick Start — Run the Project
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Python 3.11 · FastAPI · uvicorn |
-| ML | scikit-learn GradientBoosting · joblib |
-| Data | pandas · numpy · holidays |
-| Frontend | React 19 · TypeScript 5.8 (Lovable) |
-| UI | shadcn/ui · Tailwind CSS 4 · Recharts · TanStack |
+### Prerequisites
+
+- Python 3.11+
+- Node.js 18+ and npm
 
 ---
 
-## Quick Start
-
-### Backend (already has trained model — just run it)
+### 1. Clone the repo
 
 ```bash
-# From repo root
-backend/.venv/bin/uvicorn backend.app.main:app --reload --port 8000
-# API docs: http://localhost:8000/docs
-# Health:   http://localhost:8000/api/health
+git clone https://github.com/DT-sudo/TUM-Hackathon.git
+cd TUM-Hackathon
 ```
 
-### If you need to retrain (e.g. new data)
+---
+
+### 2. Backend — Python environment
 
 ```bash
-# Set up venv (once)
-cd backend && python3 -m venv .venv && source .venv/bin/activate
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cd ..
-
-# Run pipeline (in order)
-backend/.venv/bin/python scripts/clean_data.py        # Step 1: clean raw CSVs
-backend/.venv/bin/python scripts/build_features.py    # Step 2: build features
-backend/.venv/bin/python scripts/train_model.py       # Step 3: train → models/prediction_pipeline.joblib
 ```
 
-### Frontend (once Lovable files are added)
+---
+
+### 3. Download the trained model
+
+The pre-trained model (2.9 MB) is stored on Google Drive (not in git).
+Download it and place it at `models/prediction_pipeline.joblib`:
+
+```bash
+pip install gdown
+gdown "1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB" -O models/prediction_pipeline.joblib
+```
+
+Or download manually from:
+**https://drive.google.com/file/d/1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB/view**
+→ save the file as `models/prediction_pipeline.joblib`
+
+---
+
+### 4. Start the backend
+
+```bash
+PYTHONPATH=backend backend/.venv/bin/python -m uvicorn backend.app.main:app --port 8000
+```
+
+Verify it works:
+```bash
+curl http://localhost:8000/api/health
+# → {"status":"ok","model_loaded":true,...}
+```
+
+API docs available at: **http://localhost:8000/docs**
+
+---
+
+### 5. Start the frontend
 
 ```bash
 cd frontend
-bun install
-bun dev
-# UI: http://localhost:5173
+npm install
+npm run dev
 ```
+
+Open **http://localhost:8081** (or whichever port Vite picks — check the terminal output).
+
+The calendar loads immediately with today's date range. Select a road, pick dates, click **Search**.
 
 ---
 
@@ -78,29 +104,29 @@ TUM-Hackathon/
 │   │   └── processors/
 │   │       ├── traffic_analyzer.py        ← Forecast engine (loads .joblib)
 │   │       └── feature_builder.py         ← Shared feature engineering
-│   ├── tests/
-│   └── requirements.txt
-├── frontend/                              ← Lovable React app (add here)
+│   ├── requirements.txt
+│   └── .venv/                             ← Python virtualenv (not in git)
+├── frontend/                              ← React/TanStack app (Lovable)
+│   ├── src/
+│   │   ├── routes/index.tsx               ← Main calendar page
+│   │   └── lib/traffic.ts                 ← API client + types
+│   └── package.json
 ├── data/
 │   ├── raw/                               ← Original CSVs (NOT in git)
-│   ├── processed/                         ← Pipeline output (NOT in git)
-│   └── examples/                          ← Small sample files
+│   ├── processed/                         ← Pipeline outputs (NOT in git)
+│   └── examples/
 ├── models/
 │   └── prediction_pipeline.joblib         ← Trained model (NOT in git)
 ├── scripts/
-│   ├── download_data.sh                   ← Pull raw data from Google Drive
-│   ├── clean_data.py                      ← Step 1
-│   ├── build_features.py                  ← Step 2
-│   └── train_model.py                     ← Step 3
+│   ├── clean_data.py                      ← Step 1: parse raw CSVs
+│   ├── build_features.py                  ← Step 2: feature engineering
+│   └── train_model.py                     ← Step 3: train + export model
 ├── docs/
 │   ├── API.md                             ← Endpoint reference
-│   ├── ARCHITECTURE.md                    ← System overview
-│   ├── DATA_STRUCTURE.md                  ← Dataset column schemas
 │   ├── MODEL_CONTRACT.md                  ← Model input/output interface
-│   └── THEME_SPECIFIC.md                  ← Challenge details + success criteria
-├── presentation/
-├── CLAUDE.md                              ← Claude Code instructions (read every session)
-└── .env.example
+│   ├── DATA_STRUCTURE.md                  ← Dataset column schemas
+│   └── THEME_SPECIFIC.md                  ← Challenge details
+└── CLAUDE.md                              ← Claude Code instructions
 ```
 
 ---
@@ -110,13 +136,12 @@ TUM-Hackathon/
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check + model status |
-| `POST` | `/api/forecast` | Forecast for a date range |
-| `GET` | `/api/calendar` | Full year grouped by month (for calendar UI) |
+| `POST` | `/api/forecast` | Forecast for a corridor/direction/date range |
+| `GET` | `/api/calendar` | Full year grouped by month (calendar grid) |
 | `GET` | `/api/peak-days` | Top N highest-traffic days |
 | `POST` | `/api/recommendations` | User-type-tailored travel advice |
-| `GET` | `/api/analysis/summary` | Historical stats from training data |
 
-Example forecast request:
+Example:
 
 ```bash
 curl -X POST http://localhost:8000/api/forecast \
@@ -126,14 +151,85 @@ curl -X POST http://localhost:8000/api/forecast \
 
 ---
 
-## Frontend → Backend Connection
+## Road Mapping
 
-The Lovable frontend should point to `http://localhost:8000/api`. See [docs/API.md](docs/API.md) for the full response shapes.
+| Frontend label | Corridor | Direction | Meaning |
+|---------------|----------|-----------|---------|
+| A8 East (→ Salzburg) | A8E | outbound | Munich → Salzburg |
+| A8 West (→ Munich) | A8E | inbound | Salzburg → Munich |
+| A93 South (→ Kufstein) | A93S | outbound | Rosenheim → Kufstein/Austria |
+| A93 North (→ Rosenheim) | A93S | inbound | Kufstein → Rosenheim |
 
-Key integration points:
-- **Calendar grid** → `GET /api/calendar?year=2026&corridor=A8E&direction=outbound`
-- **Day detail** → `POST /api/forecast` with specific date range
-- **Peak days widget** → `GET /api/peak-days?corridor=A8E&direction=outbound&top_n=10`
+---
+
+## Traffic Categories
+
+| Category | Color | Meaning |
+|----------|-------|---------|
+| 1 | 🟢 Green | Free-flowing |
+| 2 | 🟡 Yellow | Increased |
+| 3 | 🟠 Orange | Moderate congestion |
+| 4 | 🔴 Red | Heavy |
+| 5 | ⬛ Dark Red | Critical / congestion risk |
+
+---
+
+## Retrain the Model from Scratch (optional)
+
+Only needed if you have access to the raw dataset from Die Autobahn GmbH.
+
+### Download the raw dataset
+
+The dataset zip is on Google Drive:
+**https://drive.google.com/file/d/1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC/view**
+
+> The file must be shared as "Anyone with the link" for the command below to work.
+> If access is restricted, download it manually from the browser and place it at the repo root as `hackathon-dataset.zip`.
+
+```bash
+pip install gdown
+gdown "1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC" -O hackathon-dataset.zip
+unzip -o hackathon-dataset.zip -d .
+```
+
+Expected structure after extraction:
+```
+data/raw/
+├── DAUZ_2+0_1h_2023-2026/          ← 12 hourly traffic CSVs
+├── 2023-2025_1min_2+0_v/           ← 12 minute-level CSVs (large)
+├── lt und fbt/                      ← temperature CSVs
+└── A8_A93_MQ_locations.csv
+```
+
+### Run the pipeline
+
+```bash
+# Run from repo root, in order:
+PYTHONPATH=backend backend/.venv/bin/python scripts/clean_data.py
+PYTHONPATH=backend backend/.venv/bin/python scripts/build_features.py
+PYTHONPATH=backend backend/.venv/bin/python scripts/train_model.py
+# → generates models/prediction_pipeline.joblib
+```
+
+Each step prints progress. Step 3 takes ~2–3 minutes.
+
+---
+
+## Git Workflow
+
+```bash
+# Always work on dev
+git checkout dev
+
+git add <files>
+git commit -m "feat: description"
+git push origin dev
+
+# To update main:
+git checkout main
+git merge dev
+git push origin main
+```
 
 ---
 
@@ -141,25 +237,13 @@ Key integration points:
 
 | File | Purpose |
 |------|---------|
-| [CLAUDE.md](CLAUDE.md) | Claude Code context — model architecture, rules |
-| [docs/API.md](docs/API.md) | All endpoint request/response shapes |
-| [docs/MODEL_CONTRACT.md](docs/MODEL_CONTRACT.md) | 25 model features, bundle structure, examples |
+| [CLAUDE.md](CLAUDE.md) | Claude Code context for AI-assisted development |
+| [docs/API.md](docs/API.md) | Full endpoint request/response schemas |
+| [docs/MODEL_CONTRACT.md](docs/MODEL_CONTRACT.md) | 25 model features, bundle structure |
 | [docs/DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md) | Raw CSV schemas, parsing quirks |
 | [docs/THEME_SPECIFIC.md](docs/THEME_SPECIFIC.md) | Challenge brief + success criteria |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design overview |
 
 ---
-
-## Git Workflow
-
-```bash
-git checkout dev
-# ... make changes ...
-git add <files>
-git commit -m "feat: description"
-git push origin dev
-# Never push directly to main
-```
 
 ## License
 
