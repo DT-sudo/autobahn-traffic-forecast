@@ -19,6 +19,22 @@ The application loads this file at startup — it does **not** train.
 
 ---
 
+## Approach (v2.0.0)
+
+A single **regressor** predicts slot volume (`kfz_h_slot`). All traffic
+categories (colours) are then **derived from the predicted volume** using
+percentile thresholds:
+
+- **Slot category** → slot volume vs per-`(corridor, direction, slot)` thresholds
+- **Daily category** → daily total (sum of 6 slot volumes) vs per-`(corridor, direction)` thresholds
+
+This guarantees the colour shown always matches the vehicle count shown, and
+gives the daily calendar a realistic spread (≈40/20/20/15/5 %). The earlier
+v1 design used a separate classifier plus a max-of-slots daily rule, which
+marked ~45 % of days red — that classifier has been removed.
+
+---
+
 ## Bundle Structure
 
 The `.joblib` file contains a Python dict with these keys:
@@ -26,23 +42,57 @@ The `.joblib` file contains a Python dict with these keys:
 ```python
 bundle = joblib.load("models/prediction_pipeline.joblib")
 
-bundle["classifier"]          # sklearn Pipeline → predicts traffic_category (int 1–5)
 bundle["regressor"]           # sklearn Pipeline → predicts kfz_h_slot (float, vehicles)
+bundle["slot_thresholds"]     # dict: key = "A8E|outbound|3" → [p40, p60, p80, p95]
+bundle["daily_thresholds"]    # dict: key = "A8E|outbound"   → [p40, p60, p80, p95]
+bundle["category_thresholds"] # backward-compat alias of slot_thresholds
 bundle["baselines"]           # dict of historical averages for future-date features
-bundle["category_thresholds"] # dict: key = "A8E|outbound|3" → [p40, p60, p80, p95]
 bundle["feature_columns"]     # list of 25 feature names in the required order
-bundle["training_info"]       # metadata (date_range, n_samples, version)
+bundle["training_info"]       # metadata + honest year-ahead evaluation metrics
 ```
 
 ---
 
-## What the Pipelines Include
+## What the Pipeline Includes
 
-Both classifier and regressor pipelines contain:
+The regressor pipeline contains:
 1. `StandardScaler` — normalises all 25 numerical features
-2. `GradientBoostingClassifier` / `GradientBoostingRegressor` — 300 estimators, depth 5
+2. `GradientBoostingRegressor` — 400 estimators, depth 5, lr 0.05, subsample 0.8
 
 No categorical encoding needed: corridor and direction are already binary flags.
+
+---
+
+## Deriving a Category from Volume
+
+```python
+from app.processors.feature_builder import assign_category
+
+vol = bundle["regressor"].predict(input_df)[0]          # e.g. 13118 vehicles
+slot_thr  = bundle["slot_thresholds"]["A8E|outbound|3"]  # [p40,p60,p80,p95]
+category  = assign_category(vol, slot_thr)               # int 1–5
+
+# Daily colour: sum the 6 predicted slot volumes, then:
+daily_thr = bundle["daily_thresholds"]["A8E|outbound"]
+daily_cat = assign_category(daily_total, daily_thr)
+```
+
+---
+
+## Honest Evaluation (year-ahead holdout)
+
+`training_info["evaluation"]` stores metrics from training on 2023–2024 and
+testing on the held-out 2025 (this is how the model performs forecasting an
+unseen year — the realistic measure of quality):
+
+| Metric | Value |
+|--------|-------|
+| Slot volume R² | ~0.93 |
+| Slot volume MAE | ~520 vehicles |
+| Daily category accuracy | ~0.65 |
+| Daily category within ±1 shade | ~0.96 |
+
+The final shipped model is then retrained on all of 2023–2025.
 
 ---
 
@@ -138,9 +188,10 @@ input_df = pd.DataFrame([{
     "is_frost_risk_month": 0,
 }])[feature_columns]  # enforce column order
 
-category = bundle["classifier"].predict(input_df)[0]          # int 1–5
-proba    = bundle["classifier"].predict_proba(input_df)[0]    # confidence vector
 volume   = bundle["regressor"].predict(input_df)[0]           # estimated vehicles in slot
+category = assign_category(                                    # int 1–5, derived from volume
+    volume, bundle["slot_thresholds"]["A8E|outbound|3"]
+)
 ```
 
 **Important:** always use `input_df[feature_columns]` to enforce column order before calling `predict()`.
@@ -223,6 +274,9 @@ These baselines are computed from 2023–2025 training data and allow the backen
 
 ## Model Version
 
-`1.0.0` — trained on A8E/A93S hourly detector data 2023–2025, GradientBoosting, 25 features.
+`2.0.0` — GradientBoosting regressor + percentile-threshold category derivation
+(slot & daily), trained on A8E/A93S hourly detector data 2023–2025, 25 features.
+Supersedes `1.0.0` (separate classifier + max-of-slots daily rule, removed).
 
-Retrain when: new yearly data is available, A93S direction labels are confirmed, or additional features (roadworks, weather forecast) are added.
+Retrain when: new yearly data is available, or additional features (roadworks,
+weather forecast) are added.

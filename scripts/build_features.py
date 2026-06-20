@@ -112,6 +112,31 @@ def assign_category(kfz: float, thresholds: list[float]) -> int:
     return 5
 
 
+def compute_daily_thresholds(df: pd.DataFrame) -> dict:
+    """
+    For each (corridor, direction): compute percentile thresholds on the
+    DAILY TOTAL volume (sum of all 6 slots). The daily traffic-calendar color
+    is derived from these — NOT from the max of per-slot categories, which
+    would over-inflate the number of red days.
+    """
+    daily = (
+        df.groupby(["corridor", "direction", "date"], as_index=False)["kfz_h_slot"]
+        .sum()
+        .rename(columns={"kfz_h_slot": "daily_vol"})
+    )
+    thresholds: dict[str, list[float]] = {}
+    for (corridor, direction), group in daily.groupby(["corridor", "direction"]):
+        key = f"{corridor}|{direction}"
+        vals = group["daily_vol"].dropna()
+        thresholds[key] = [
+            float(vals.quantile(0.40)),
+            float(vals.quantile(0.60)),
+            float(vals.quantile(0.80)),
+            float(vals.quantile(0.95)),
+        ]
+    return thresholds
+
+
 # ---------------------------------------------------------------------------
 # 3. Calendar / holiday features
 # ---------------------------------------------------------------------------
@@ -255,11 +280,17 @@ if __name__ == "__main__":
     slot_df = aggregate_to_slots(traffic)
     print(f"  {len(slot_df):,} slot-level rows")
 
-    print("\nComputing category thresholds...")
+    print("\nComputing per-slot category thresholds...")
     thresholds = compute_category_thresholds(slot_df)
     with open(PROCESSED / "category_thresholds.json", "w") as f:
         json.dump(thresholds, f, indent=2)
-    print(f"  {len(thresholds)} threshold groups saved.")
+    print(f"  {len(thresholds)} slot threshold groups saved.")
+
+    print("\nComputing daily-total category thresholds...")
+    daily_thresholds = compute_daily_thresholds(slot_df)
+    with open(PROCESSED / "daily_thresholds.json", "w") as f:
+        json.dump(daily_thresholds, f, indent=2)
+    print(f"  {len(daily_thresholds)} daily threshold groups saved.")
 
     def lookup_thresh(row):
         key = f"{row['corridor']}|{row['direction']}|{int(row['time_slot'])}"
@@ -267,8 +298,28 @@ if __name__ == "__main__":
         return assign_category(row["kfz_h_slot"], t)
 
     slot_df["traffic_category"] = slot_df.apply(lookup_thresh, axis=1)
-    cat_dist = slot_df["traffic_category"].value_counts().sort_index()
-    print(f"  Category distribution:\n{cat_dist.to_string()}")
+    cat_dist = slot_df["traffic_category"].value_counts(normalize=True).sort_index() * 100
+    print(f"  Slot category distribution (%):\n{cat_dist.round(1).to_string()}")
+
+    # Daily total + daily category (for reference / honest distribution check)
+    daily_tot = (
+        slot_df.groupby(["corridor", "direction", "date"], as_index=False)["kfz_h_slot"]
+        .sum()
+        .rename(columns={"kfz_h_slot": "daily_vol"})
+    )
+
+    def lookup_daily(row):
+        key = f"{row['corridor']}|{row['direction']}"
+        t = daily_thresholds.get(key, [20000, 40000, 60000, 90000])
+        return assign_category(row["daily_vol"], t)
+
+    daily_tot["daily_category"] = daily_tot.apply(lookup_daily, axis=1)
+    daily_dist = daily_tot["daily_category"].value_counts(normalize=True).sort_index() * 100
+    print(f"  Daily category distribution (%):\n{daily_dist.round(1).to_string()}")
+    slot_df = slot_df.merge(
+        daily_tot[["corridor", "direction", "date", "daily_vol", "daily_category"]],
+        on=["corridor", "direction", "date"], how="left",
+    )
 
     print("\nAdding calendar + holiday features...")
     features_df = add_calendar_features(slot_df)
@@ -293,7 +344,8 @@ if __name__ == "__main__":
 
     # Final feature set for training
     keep_cols = (
-        ["date", "time_slot", "corridor", "direction", "kfz_h_slot", "sv_h_slot", "traffic_category"]
+        ["date", "time_slot", "corridor", "direction", "kfz_h_slot", "sv_h_slot",
+         "traffic_category", "daily_vol", "daily_category"]
         + FEATURE_COLUMNS
     )
     keep_cols = [c for c in keep_cols if c in features_df.columns]

@@ -22,9 +22,14 @@ from app.processors.feature_builder import (
     CATEGORY_META,
     FEATURE_COLUMNS,
     SLOT_LABELS,
+    assign_category,
     build_feature_row,
     build_explanation,
+    category_confidence,
 )
+
+DEFAULT_SLOT_THRESHOLDS = [5000, 10000, 20000, 35000]
+DEFAULT_DAILY_THRESHOLDS = [20000, 40000, 60000, 90000]
 
 logger = logging.getLogger(__name__)
 
@@ -98,17 +103,19 @@ class TrafficAnalyzer:
                 slot_result = self._predict_slot(d, slot, corridor, direction)
                 day_slots.append(slot_result)
 
-            # Day-level summary: use the maximum category across slots (worst bottleneck)
-            max_cat = max(s["category"] for s in day_slots)
+            # Day-level category from the DAILY TOTAL volume against daily
+            # thresholds — NOT max-of-slots (which over-inflates red days).
             daily_vol = sum(s["estimated_vehicles"] for s in day_slots)
+            daily_thr = self._daily_thresholds(corridor, direction)
+            daily_cat = assign_category(daily_vol, daily_thr)
             dominant_pattern = _get_dominant_pattern(day_slots)
 
             results.append({
                 "date": d.isoformat(),
                 "day_of_week": d.strftime("%A"),
-                "daily_category": max_cat,
-                "daily_color": CATEGORY_META[max_cat]["label"],
-                "daily_color_hex": CATEGORY_META[max_cat]["hex"],
+                "daily_category": daily_cat,
+                "daily_color": CATEGORY_META[daily_cat]["label"],
+                "daily_color_hex": CATEGORY_META[daily_cat]["hex"],
                 "estimated_daily_vehicles": int(daily_vol),
                 "pattern_type": dominant_pattern,
                 "time_slots": day_slots,
@@ -165,31 +172,46 @@ class TrafficAnalyzer:
     ) -> dict:
         """Generate user-type-specific travel recommendations for a single day."""
         slots = [self._predict_slot(d, s, corridor, direction) for s in range(1, 7)]
-        max_cat = max(s["category"] for s in slots)
+
+        # Headline category from the daily total (matches the calendar colour)
+        daily_vol = sum(s["estimated_vehicles"] for s in slots)
+        daily_cat = assign_category(daily_vol, self._daily_thresholds(corridor, direction))
 
         avoid = [s["slot"] for s in slots if s["category"] >= 4]
         prefer = [s["slot"] for s in slots if s["category"] <= 2]
 
         slot_labels = {s["slot"]: s["label"] for s in slots}
 
-        message = _build_user_message(user_type, avoid, prefer, slot_labels, max_cat)
+        message = _build_user_message(user_type, avoid, prefer, slot_labels, daily_cat)
 
         return {
             "date": d.isoformat(),
             "corridor": corridor,
             "direction": direction,
             "user_type": user_type,
-            "traffic_category": max_cat,
-            "traffic_color": CATEGORY_META[max_cat]["label"],
+            "traffic_category": daily_cat,
+            "traffic_color": CATEGORY_META[daily_cat]["label"],
             "recommendation": message,
             "avoid_slots": avoid,
             "preferred_slots": prefer,
-            "severity": ["", "low", "low", "moderate", "high", "very_high"][max_cat],
+            "severity": ["", "low", "low", "moderate", "high", "very_high"][daily_cat],
         }
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _slot_thresholds(self, corridor: str, direction: str, slot: int) -> list[float]:
+        if not self._bundle:
+            return DEFAULT_SLOT_THRESHOLDS
+        thr = self._bundle.get("slot_thresholds") or self._bundle.get("category_thresholds") or {}
+        return thr.get(f"{corridor}|{direction}|{slot}", DEFAULT_SLOT_THRESHOLDS)
+
+    def _daily_thresholds(self, corridor: str, direction: str) -> list[float]:
+        if not self._bundle:
+            return DEFAULT_DAILY_THRESHOLDS
+        thr = self._bundle.get("daily_thresholds") or {}
+        return thr.get(f"{corridor}|{direction}", DEFAULT_DAILY_THRESHOLDS)
 
     def _predict_slot(
         self,
@@ -202,16 +224,17 @@ class TrafficAnalyzer:
         row = build_feature_row(d, slot, corridor, direction, baselines)
 
         if not self._bundle:
-            category, volume = _mock_predict(row)
-            confidence = 0.5
+            _, volume = _mock_predict(row)
         else:
             X = pd.DataFrame([[row[c] for c in FEATURE_COLUMNS]], columns=FEATURE_COLUMNS)
-            category = int(self._bundle["classifier"].predict(X)[0])
-            proba = self._bundle["classifier"].predict_proba(X)[0]
-            confidence = float(proba.max())
-
             raw_vol = float(self._bundle["regressor"].predict(X)[0])
             volume = max(0, round(raw_vol))
+
+        # Category and confidence derived from the predicted volume — keeps the
+        # colour perfectly consistent with the displayed vehicle count.
+        thresholds = self._slot_thresholds(corridor, direction, slot)
+        category = assign_category(volume, thresholds)
+        confidence = category_confidence(volume, thresholds)
 
         explanation = build_explanation(row, category)
         meta = CATEGORY_META[category]
@@ -223,7 +246,7 @@ class TrafficAnalyzer:
             "color": meta["label"],
             "color_hex": meta["hex"],
             "estimated_vehicles": volume,
-            "confidence": round(confidence, 2),
+            "confidence": confidence,
             "explanation": explanation,
         }
 

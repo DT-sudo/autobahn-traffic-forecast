@@ -180,6 +180,30 @@ CATEGORY_META: dict[int, dict[str, str]] = {
 }
 
 
+def assign_category(volume: float, thresholds: list[float]) -> int:
+    """Map a vehicle volume to a traffic category 1-5 using 4 percentile thresholds."""
+    return 1 + sum(1 for t in thresholds if volume >= t)
+
+
+def category_confidence(volume: float, thresholds: list[float]) -> float:
+    """
+    Derive a confidence score (0.5-0.95) from how far the predicted volume sits
+    from the nearest category boundary. A prediction deep inside a category band
+    is confident; one sitting right on a boundary is not.
+    """
+    cat = assign_category(volume, thresholds)
+    # Build the band [lo, hi] the volume falls into
+    bounds = [0.0, *thresholds, max(thresholds[-1] * 1.5, volume + 1)]
+    lo, hi = bounds[cat - 1], bounds[cat]
+    band = hi - lo
+    if band <= 0:
+        return 0.7
+    dist_to_edge = min(volume - lo, hi - volume)
+    # Normalise: at the centre -> 1.0, on the edge -> 0.0
+    rel = max(0.0, min(1.0, dist_to_edge / (band / 2)))
+    return round(0.5 + 0.45 * rel, 2)
+
+
 # ---------------------------------------------------------------------------
 # Core feature computation
 # ---------------------------------------------------------------------------
