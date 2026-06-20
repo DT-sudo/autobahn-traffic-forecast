@@ -153,7 +153,7 @@ the primary data feed; see [Traffic Data CSV Files](#traffic-data-csv-files) for
 ```bash
 curl http://localhost:8000/api/data/A8easttraffic.csv
 # day,traffic,1 part,2 part,3 part,4 part,5 part,6 part
-# 20.06.2026,heavy,heavy,heavy,heavy,moderate,increased,heavy
+# 20.06.2026,heavy,heavy,heavy,heavy,increased,increased,heavy
 # ...
 ```
 
@@ -209,7 +209,7 @@ Header (exact): `day,traffic,1 part,2 part,3 part,4 part,5 part,6 part`
 | Column | Type | Description |
 |--------|------|-------------|
 | `day` | `DD.MM.YYYY` | Calendar date (one row per day) |
-| `traffic` | level string | **Overall daily level = average of the 6 part levels** (rounded) |
+| `traffic` | level string | **Overall daily level** — the analyzer's `daily_category` (daily total volume vs daily thresholds), the same value the JSON API returns |
 | `1 part` | level string | Time slot 1 — `00:00–06:00` |
 | `2 part` | level string | Time slot 2 — `06:00–10:00` |
 | `3 part` | level string | Time slot 3 — `10:00–14:00` |
@@ -219,19 +219,21 @@ Header (exact): `day,traffic,1 part,2 part,3 part,4 part,5 part,6 part`
 
 ### Level values
 
-Each cell is one of five strings, mapping to the [traffic categories](#traffic-categories):
+The frontend works with **4 levels only**. Each cell is one of these four strings — the
+model's 5 internal [traffic categories](#traffic-categories) are folded to 4 at export time
+(category 3 "moderate" → `increased`):
 
-| Level string | Category | Color |
-|--------------|----------|-------|
+| Level string | From category | Color |
+|--------------|---------------|-------|
 | `low` | 1 | 🟢 Green |
-| `increased` | 2 | 🟡 Yellow |
-| `moderate` | 3 | 🟠 Orange |
+| `increased` | 2 + 3 | 🟡 Yellow |
 | `heavy` | 4 | 🔴 Red |
 | `extreme` | 5 | ⬛ Dark Red |
 
 > **Notes for frontend parsing:** UTF-8, LF line endings, comma-separated, no quoting.
-> The `traffic` column is derived (average of the 6 `N part` levels), so it never needs to be
-> recomputed client-side. Each file covers a rolling one-year window starting from the day it was
+> Only the 4 level strings above ever appear (no `moderate`). The `traffic` column is the
+> analyzer's daily category, so it matches the JSON API and never needs to be recomputed
+> client-side. Each file covers a rolling one-year window starting from the day it was
 > generated.
 
 ---

@@ -8,11 +8,14 @@ format the frontend parses:
     ...
 
 - day      : DD.MM.YYYY
-- traffic  : overall daily traffic level = average of the 6 part levels
+- traffic  : overall daily traffic level = the analyzer's daily category
+             (daily TOTAL volume vs per-corridor/direction daily thresholds —
+             the same value the API serves, so CSV and API never disagree)
 - N part   : traffic level for time slot N (1=00-06 ... 6=22-24)
 
-Traffic level strings map from the model's 1-5 category:
-    1 low | 2 increased | 3 moderate | 4 heavy | 5 extreme
+The frontend uses only 4 traffic levels, so the model's 5 categories are folded
+to 4 (category 3 "moderate" merges into "increased"):
+    1 low | 2 increased | 3 increased | 4 heavy | 5 extreme
 
 Run from repo root (model + processed data must already exist):
     PYTHONPATH=backend backend/.venv/bin/python scripts/export_frontend_csv.py
@@ -29,9 +32,11 @@ sys.path.insert(0, str(REPO_ROOT / "backend"))
 
 from app.processors.traffic_analyzer import get_analyzer  # noqa: E402
 
-# Forecast horizon (matches the example files: ~1 year ahead from today)
-DATE_FROM = date(2026, 6, 20)
-DATE_TO = date(2027, 6, 30)
+# Forecast horizon: exactly one year ahead, starting today.
+# date_to is the day before the same date next year, so the range is one
+# full year (365 days, 366 in a leap year) with no extra days.
+DATE_FROM = date.today()
+DATE_TO = DATE_FROM.replace(year=DATE_FROM.year + 1) - timedelta(days=1)
 
 OUTPUT_DIR = REPO_ROOT / "data" / "export"
 
@@ -45,11 +50,12 @@ FILES: dict[str, tuple[str, str]] = {
     "A93northtraffic.csv": ("A93S", "inbound"),   # A93 North → Rosenheim
 }
 
-# model category (1-5) -> frontend traffic level string
+# model category (1-5) -> frontend traffic level string.
+# The frontend only handles 4 levels, so category 3 folds into "increased".
 CATEGORY_TO_LEVEL = {
     1: "low",
     2: "increased",
-    3: "moderate",
+    3: "increased",
     4: "heavy",
     5: "extreme",
 }
@@ -58,12 +64,6 @@ CATEGORY_TO_LEVEL = {
 def _iso_to_ddmmyyyy(iso: str) -> str:
     y, m, d = iso.split("-")
     return f"{d}.{m}.{y}"
-
-
-def _daily_from_parts(part_cats: list[int]) -> int:
-    """Daily traffic category = average of the 6 slot categories (round half up, clamp 1-5)."""
-    avg = sum(part_cats) / len(part_cats)
-    return min(5, max(1, int(avg + 0.5)))
 
 
 # analyzer.forecast() caps a single call at 366 days, so split longer ranges.
@@ -91,7 +91,10 @@ def export_file(analyzer, filename: str, corridor: str, direction: str) -> int:
         for day in forecast:
             slots = {s["slot"]: s["category"] for s in day["time_slots"]}
             part_cats = [slots[i] for i in range(1, 7)]
-            daily_cat = _daily_from_parts(part_cats)
+            # Daily level = analyzer's daily category (daily total vs daily
+            # thresholds) — the canonical "how heavy is this day" value, kept
+            # identical to what the API returns.
+            daily_cat = day["daily_category"]
             row = [
                 _iso_to_ddmmyyyy(day["date"]),
                 CATEGORY_TO_LEVEL[daily_cat],
