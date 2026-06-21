@@ -109,12 +109,19 @@ def clean_traffic_files() -> pd.DataFrame:
         df = df.dropna(subset=["kfz_h"])          # drop rows with no vehicle count
         df = df[df["kfz_h"] >= 0]                 # remove negative counts
 
-        # Remove extreme outliers (> 99.9th percentile per corridor/direction)
-        p999 = df["kfz_h"].quantile(0.999)
-        outliers = df["kfz_h"] > p999
+        # Remove extreme outliers using per-hour threshold.
+        # A single global threshold would be set by daytime peaks (~5000 v/h) and
+        # miss nighttime anomalies (where 2000 v/h at 03:00 is clearly wrong).
+        df["_hour"] = pd.to_datetime(df["timestamp"]).dt.hour
+        global_p999 = df["kfz_h"].quantile(0.999)
+        # Use per-hour quantile; fall back to global if fewer than 50 observations for that hour
+        p999_by_hour = df.groupby("_hour")["kfz_h"].transform(
+            lambda x: x.quantile(0.999) if len(x) >= 50 else global_p999
+        )
+        outliers = df["kfz_h"] > p999_by_hour
         if outliers.any():
-            print(f"    Removing {outliers.sum()} outlier rows (kfz_h > {p999:.0f})")
-            df = df[~outliers]
+            print(f"    Removing {outliers.sum()} outlier rows (per-hour 99.9th percentile)")
+        df = df[~outliers].drop(columns=["_hour"])
 
         # sv_h nulls always co-occur with kfz_h nulls (verified on full MQB25 file).
         # After dropna(kfz_h) above, sv_h should never be null — but clip to be safe.

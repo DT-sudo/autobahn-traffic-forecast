@@ -1,7 +1,8 @@
 # TUM Science Hackathon 2026 — Automated Traffic Forecasting
 
-**Challenge:** Automated Traffic Forecasting for Alpine Holiday Corridors A8 East & A93 South
-**Host:** Die Autobahn GmbH des Bundes
+**Challenge:** Automated Traffic Forecasting for Alpine Holiday Corridors A8 East & A93 South  
+**Host:** Die Autobahn GmbH des Bundes  
+**Version:** medium
 
 Color-coded daily traffic forecasts (green → dark red) for up to one year ahead — replacing the manual expert-driven Traffic Calendar with a data-driven ML system.
 
@@ -11,93 +12,211 @@ Color-coded daily traffic forecasts (green → dark red) for up to one year ahea
 
 | Component | Status | Description |
 |-----------|--------|-------------|
-| ML model | ✅ Done | GradientBoosting regressor + percentile thresholds, 25 features, trained 2023–2025 |
-| Backend API | ✅ Done | FastAPI — static CSV feed `/api/data/*.csv` + JSON `/forecast`, `/calendar`, `/peak-days`, `/recommendations` |
-| Data export | ✅ Done | 4 per-road traffic CSVs in `data/export/`, served to the frontend |
-| Frontend | 🔌 External | Consumes the `/api/data/*.csv` files (parses CSV → calendar UI) |
+| ML model | ✅ Done | GradientBoosting classifier + regressor, 25 features, ratio-based categories |
+| Backend API | ✅ Done | FastAPI — `/forecast`, `/calendar`, `/peak-days`, `/recommendations`, `/historical` |
+| Frontend | ✅ Done | React/TanStack calendar UI, fetches live from backend |
 
 ---
 
-## Quick Start — Run the Project
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.11+
-- (Optional) Node.js 18+ — only if you add a frontend that consumes the CSV feed
+- Node.js 18+ and npm
 
----
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/DT-sudo/TUM-Hackathon.git
-cd TUM-Hackathon
-```
-
----
-
-### 2. Backend — Python environment
+### 1. Backend
 
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 cd ..
 ```
 
----
-
-### 3. Download the trained model
-
-The pre-trained model (0.7 MB, v2.0.0) is stored on Google Drive (not in git).
-Download it and place it at `models/prediction_pipeline.joblib`:
+Download the pre-trained model (2.9 MB):
 
 ```bash
 pip install gdown
-gdown "1dnAvcgApUMZQ03NfQzAhNHIaldAgArxI" -O models/prediction_pipeline.joblib
+gdown "1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB" -O models/prediction_pipeline.joblib
 ```
 
-Or download manually from:
-**https://drive.google.com/file/d/1dnAvcgApUMZQ03NfQzAhNHIaldAgArxI/view**
-→ save the file as `models/prediction_pipeline.joblib`
+Or manually from: **https://drive.google.com/file/d/1mThbkhkYqZW3lDtkB7e5-t2w5yGNlqGB/view**
 
----
-
-### 4. Start the backend
+Start the backend:
 
 ```bash
 PYTHONPATH=backend backend/.venv/bin/python -m uvicorn backend.app.main:app --port 8000
 ```
 
-Verify it works:
+Verify: `curl http://localhost:8000/api/health`
+
+### 2. Frontend
+
 ```bash
-curl http://localhost:8000/api/health
-# → {"status":"ok","model_loaded":true,...}
+cd frontend
+npm install
+npm run dev
 ```
 
-API docs available at: **http://localhost:8000/docs**
+Open **http://localhost:5173**
 
 ---
 
-### 5. Generate the traffic CSV files
+## ML Model — How It Works In Detail
 
-```bash
-PYTHONPATH=backend backend/.venv/bin/python scripts/export_frontend_csv.py
+### Step 1: Raw Data
+
+Highway loop detectors on A8 and A93 record vehicle counts every hour (`kfz_h` = vehicles/hour, `sv_h` = heavy trucks/hour). The dataset covers **2023–2025**, from 12 detector stations across two corridors and two directions.
+
+Raw data is cleaned: negative counts removed, outliers above the 99.9th percentile dropped, files from multiple detector stations merged.
+
+### Step 2: Aggregation into Time Slots
+
+Each day is divided into **6 time slots**:
+
+| Slot | Window | Duration |
+|------|--------|----------|
+| 1 | 00:00–06:00 | 6 h (night) |
+| 2 | 06:00–10:00 | 4 h |
+| 3 | 10:00–14:00 | 4 h |
+| 4 | 14:00–18:00 | 4 h |
+| 5 | 18:00–22:00 | 4 h |
+| 6 | 22:00–24:00 | 2 h (late night) |
+
+Hourly vehicle counts are **summed** within each slot (not averaged), then averaged across detector stations on the same corridor/direction. Incomplete slots (fewer than 75% of expected hours recorded) are dropped.
+
+### Step 3: Historical Baselines
+
+Three sets of historical averages are computed from the training data and stored in the model bundle:
+
+- **`by_dow_slot`**: average vehicles per (corridor, direction, day-of-week, slot) — weekly rhythm
+- **`by_month_slot`**: average vehicles per (corridor, direction, month, slot) — seasonality
+- **`by_slot`**: average vehicles per (corridor, direction, slot) across ALL months — annual average per slot
+
+### Step 4: Traffic Category Labels
+
+Each training row is assigned a category 1–5 using **ratio-based thresholds**:
+
+```
+ratio = kfz_h_slot / hist_kfz_month_slot
 ```
 
-This writes the 4 per-road CSVs into `data/export/`. They are then served by the running backend at
-`http://localhost:8000/api/data/<file>.csv`. Verify:
+This compares each slot's actual count to the historical monthly average for that (corridor, direction, month, slot). A ratio of 1.0 means exactly average for that time of year. Thresholds are computed from the distribution of all ratios across the full training set:
 
-```bash
-curl http://localhost:8000/api/data/A8easttraffic.csv | head -3
-```
+| Category | Color | Threshold | Meaning |
+|----------|-------|-----------|---------|
+| 1 | 🟢 Green | ratio < 0.955 | Below average for this month/slot |
+| 2 | 🟡 Yellow | 0.955 – 1.077 | Slightly above average |
+| 3 | 🟠 Orange | 1.077 – 1.273 | Noticeably above average |
+| 4 | 🔴 Red | 1.273 – 1.615 | Top 12% of days |
+| 5 | ⬛ Dark red | > 1.615 | Top 3% — extreme days |
 
-### 6. Connect a frontend
+Because thresholds are computed on ratios rather than raw counts, a night slot with 4,000 vehicles and a daytime slot with 10,000 vehicles are fairly compared — each is judged relative to what is normal for that exact time of day and month.
 
-The frontend fetches the static CSV feed and renders the calendar. See
-[Traffic Data CSV Files](#traffic-data-csv-files) for the column structure and the
-file ↔ road mapping it should expect.
+### Step 5: The 25 Features
+
+For every future date and slot, 25 features are computed from the calendar alone — no real-time sensor data needed:
+
+**Calendar basics**
+| Feature | Description |
+|---------|-------------|
+| `month` | 1–12 |
+| `day_of_week` | 0 = Monday, 6 = Sunday |
+| `week_of_year` | 1–53 |
+| `time_slot` | 1–6 |
+| `is_weekend` | 1 if Saturday or Sunday |
+
+**Public holidays**
+| Feature | Description |
+|---------|-------------|
+| `is_public_holiday_de` | German national holiday |
+| `is_public_holiday_bavaria` | Bavarian-specific holiday |
+| `is_bridge_day` | Workday between a holiday and a weekend (Brückentag) |
+| `is_long_weekend` | Part of a 3+ consecutive day off block |
+
+**School holidays**
+| Feature | Description |
+|---------|-------------|
+| `is_school_holiday_bavaria` | Bavarian school holidays active |
+| `is_school_holiday_bw` | Baden-Württemberg school holidays active |
+| `school_holiday_overlap` | Sum of the two (0, 1, or 2) — overlap = extreme departure pressure |
+| `days_until_school_holiday` | Days until next Bavarian holiday starts (capped at 30) |
+| `days_since_school_holiday` | Days since last one ended (capped at 30) |
+
+**Seasons and events**
+| Feature | Description |
+|---------|-------------|
+| `is_summer_season` | June–September |
+| `is_winter_sports_season` | December–March |
+| `is_easter_period` | ±4 days around Easter Sunday |
+| `is_christmas_period` | 22 Dec – 6 Jan |
+
+**Road context**
+| Feature | Description |
+|---------|-------------|
+| `is_outbound` | 1 = toward Salzburg/Kufstein |
+| `is_a93` | 1 = A93 corridor |
+
+**Historical baselines** (from model bundle)
+| Feature | Description |
+|---------|-------------|
+| `hist_kfz_dow_slot` | Average vehicles for this (corridor, direction, day-of-week, slot) |
+| `hist_kfz_month_slot` | Average vehicles for this (corridor, direction, month, slot) |
+| `hist_sv_share` | Historical heavy truck share (~8%) |
+
+**Weather proxy**
+| Feature | Description |
+|---------|-------------|
+| `clim_air_temp_c` | Monthly average air temperature (Jan=1°C, Jul=21°C) |
+| `is_frost_risk_month` | 1 for December, January, February, November |
+
+### Step 6: Training
+
+Two **Gradient Boosting** models trained on ~25,700 rows (3 years × 4 corridor/direction combos × ~365 days × 6 slots):
+
+**Classifier** → predicts traffic category 1–5  
+**Regressor** → predicts raw vehicle count (for display)
+
+Both use a `StandardScaler → GradientBoostingClassifier/Regressor` scikit-learn pipeline with 300 estimators, max depth 5, learning rate 0.05, subsample 0.8. Training split: 80/20 stratified by category. Regressor achieves MAE ~480 vehicles, R² = 0.948.
+
+Feature importance: `hist_kfz_month_slot` (62%) and `hist_kfz_dow_slot` (28%) dominate — the remaining 23 features provide fine-grained corrections for holidays, school breaks, and events.
+
+Everything is packed into a single `models/prediction_pipeline.joblib` bundle containing both pipelines, all baselines, and the ratio thresholds.
+
+### Step 7: Inference (Runtime)
+
+When a user searches a date range:
+
+1. For each (date, slot): build 25 features from the calendar
+2. Regressor predicts raw vehicle count
+3. Look up `hist_kfz_month_slot` baseline from the bundle
+4. `ratio = predicted_count / hist_kfz_month_slot`
+5. Compare ratio against stored thresholds → category 1–5
+6. Daily category = average of 6 slot categories, rounded
+7. Return color + vehicle count to frontend
+
+---
+
+## Known Limitations and Proposed Improvements
+
+### Issue: Summer months appear low traffic
+
+The current normalization uses `hist_kfz_month_slot` — the monthly average for that slot. This means an "average August afternoon" always appears green/yellow because it is being compared only to other August afternoons. As a result, summer and winter months look equally busy in the color scale, even though July/August carry 30–40% more vehicles than November/December.
+
+**Proposed fix:** Normalize by `hist_kfz_slot` — the **annual** average for that slot across all months. Then:
+- An August afternoon (11,000 vehicles) vs annual average (9,500) → ratio 1.16 → orange ✓
+- A November afternoon (8,000 vehicles) vs annual average (9,500) → ratio 0.84 → green ✓
+
+This change would make summer genuinely red/orange across the board, accurately reflecting that it is the busiest period of year in absolute terms.
+
+### Other known limitations
+
+- No awareness of accidents, road closures, or large one-off events
+- School holiday calendar hardcoded through 2026; forecasts beyond that degrade gracefully
+- No economic growth or population trend modelling — 2026 assumed to mirror 2023–2025
+- Unequal slot sizes (slot 1 = 6 h, slot 6 = 2 h) mean raw vehicle counts are not directly comparable across slots; ratio normalization mitigates this but equal 4-hour slots would be cleaner
 
 ---
 
@@ -107,228 +226,67 @@ file ↔ road mapping it should expect.
 TUM-Hackathon/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                        ← FastAPI entry point (mounts /api/data CSV feed)
+│   │   ├── main.py                        ← FastAPI entry point
 │   │   ├── api/routes.py                  ← All API endpoints
 │   │   └── processors/
-│   │       ├── traffic_analyzer.py        ← Forecast engine (loads .joblib)
+│   │       ├── traffic_analyzer.py        ← Forecast engine
 │   │       └── feature_builder.py         ← Shared feature engineering
-│   ├── requirements.txt
-│   └── .venv/                             ← Python virtualenv (not in git)
+│   └── requirements.txt
+├── frontend/
+│   ├── src/
+│   │   ├── routes/index.tsx               ← Main calendar page
+│   │   └── lib/traffic.ts                 ← API client + types
+│   └── package.json
 ├── data/
 │   ├── raw/                               ← Original CSVs (NOT in git)
-│   ├── processed/                         ← Pipeline outputs (NOT in git)
-│   ├── export/                            ← Generated per-road CSVs, served at /api/data (NOT in git)
-│   └── examples/                          ← CSV format reference samples
+│   └── processed/
+│       ├── historical_A8E_outbound.json
+│       ├── historical_A8E_inbound.json
+│       ├── historical_A93S_outbound.json
+│       └── historical_A93S_inbound.json
 ├── models/
-│   └── prediction_pipeline.joblib         ← Trained model (NOT in git)
+│   └── prediction_pipeline.joblib         ← Trained model bundle
 ├── scripts/
-│   ├── clean_data.py                      ← Step 1: parse raw CSVs
-│   ├── build_features.py                  ← Step 2: feature engineering
-│   ├── train_model.py                     ← Step 3: train + export model
-│   └── export_frontend_csv.py             ← Generate the 4 per-road CSVs → data/export/
-├── docs/
-│   ├── API.md                             ← Endpoint reference
-│   ├── MODEL_CONTRACT.md                  ← Model input/output interface
-│   ├── DATA_STRUCTURE.md                  ← Dataset column schemas
-│   └── THEME_SPECIFIC.md                  ← Challenge details
-└── CLAUDE.md                              ← Claude Code instructions
+│   ├── clean_data.py                      ← Step 1
+│   ├── build_features.py                  ← Step 2
+│   ├── train_model.py                     ← Step 3
+│   └── process_historical.py              ← Step 4
+└── docs/
+    ├── API.md
+    ├── MODEL_CONTRACT.md
+    ├── DATA_STRUCTURE.md
+    └── explanation.md
 ```
 
 ---
 
 ## API Endpoints
 
-### Static traffic data (for the frontend)
-
-The frontend consumes ready-to-parse **CSV files** served as static files — one per road. This is
-the primary data feed; see [Traffic Data CSV Files](#traffic-data-csv-files) for the column layout.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/data/A8easttraffic.csv` | A8 East — Munich → Salzburg (A8E outbound) |
-| `GET` | `/api/data/A8westtraffic.csv` | A8 West — Salzburg → Munich (A8E inbound) |
-| `GET` | `/api/data/A93southtraffic.csv` | A93 South — Rosenheim → Kufstein (A93S outbound) |
-| `GET` | `/api/data/A93northtraffic.csv` | A93 North — Kufstein → Rosenheim (A93S inbound) |
-
-```bash
-curl http://localhost:8000/api/data/A8easttraffic.csv
-# day,traffic,1 part,2 part,3 part,4 part,5 part,6 part
-# 20.06.2026,heavy,heavy,heavy,heavy,increased,increased,heavy
-# ...
-```
-
-```js
-// Frontend fetch example
-const res = await fetch("http://localhost:8000/api/data/A8easttraffic.csv");
-const csv = await res.text();   // parse with PapaParse, d3-dsv, etc.
-```
-
-### Dynamic JSON API (model inference)
-
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/health` | Health check + model status |
 | `POST` | `/api/forecast` | Forecast for a corridor/direction/date range |
-| `GET` | `/api/calendar` | Full year grouped by month (calendar grid) |
+| `GET` | `/api/calendar` | Full year grouped by month |
 | `GET` | `/api/peak-days` | Top N highest-traffic days |
 | `POST` | `/api/recommendations` | User-type-tailored travel advice |
-
-```bash
-curl -X POST http://localhost:8000/api/forecast \
-  -H "Content-Type: application/json" \
-  -d '{"corridor":"A8E","direction":"outbound","date_from":"2026-07-01","date_to":"2026-07-31"}'
-```
+| `GET` | `/api/historical` | Real 2023–2025 measurements |
 
 ---
 
-## Traffic Data CSV Files
+## Retrain from Scratch (optional)
 
-The four CSV files are the deliverable the frontend parses. They are generated from the trained
-model into `data/export/` and served at `/api/data/<file>.csv` (see above).
-
-### Generate / refresh the files
-
-```bash
-PYTHONPATH=backend backend/.venv/bin/python scripts/export_frontend_csv.py
-# → writes 4 CSVs into data/export/ (forecast horizon: today → +1 year)
-```
-
-### File ↔ road mapping
-
-| File | Corridor | Direction | Route |
-|------|----------|-----------|-------|
-| `A8easttraffic.csv` | A8E | outbound | Munich → Salzburg |
-| `A8westtraffic.csv` | A8E | inbound | Salzburg → Munich |
-| `A93southtraffic.csv` | A93S | outbound | Rosenheim → Kufstein |
-| `A93northtraffic.csv` | A93S | inbound | Kufstein → Rosenheim |
-
-### Column layout
-
-Header (exact): `day,traffic,1 part,2 part,3 part,4 part,5 part,6 part`
-
-| Column | Type | Description |
-|--------|------|-------------|
-| `day` | `DD.MM.YYYY` | Calendar date (one row per day) |
-| `traffic` | level string | **Overall daily level** — the analyzer's `daily_category` (daily total volume vs daily thresholds), the same value the JSON API returns |
-| `1 part` | level string | Time slot 1 — `00:00–06:00` |
-| `2 part` | level string | Time slot 2 — `06:00–10:00` |
-| `3 part` | level string | Time slot 3 — `10:00–14:00` |
-| `4 part` | level string | Time slot 4 — `14:00–18:00` |
-| `5 part` | level string | Time slot 5 — `18:00–22:00` |
-| `6 part` | level string | Time slot 6 — `22:00–24:00` |
-
-### Level values
-
-The frontend works with **4 levels only**. Each cell is one of these four strings — the
-model's 5 internal [traffic categories](#traffic-categories) are folded to 4 at export time
-(category 3 "moderate" → `increased`):
-
-| Level string | From category | Color |
-|--------------|---------------|-------|
-| `low` | 1 | 🟢 Green |
-| `increased` | 2 + 3 | 🟡 Yellow |
-| `heavy` | 4 | 🔴 Red |
-| `extreme` | 5 | ⬛ Dark Red |
-
-> **Notes for frontend parsing:** UTF-8, LF line endings, comma-separated, no quoting.
-> Only the 4 level strings above ever appear (no `moderate`). The `traffic` column is the
-> analyzer's daily category, so it matches the JSON API and never needs to be recomputed
-> client-side. Each file covers a rolling one-year window starting from the day it was
-> generated.
-
----
-
-## Road Mapping
-
-| Frontend label | Corridor | Direction | Meaning |
-|---------------|----------|-----------|---------|
-| A8 East (→ Salzburg) | A8E | outbound | Munich → Salzburg |
-| A8 West (→ Munich) | A8E | inbound | Salzburg → Munich |
-| A93 South (→ Kufstein) | A93S | outbound | Rosenheim → Kufstein/Austria |
-| A93 North (→ Rosenheim) | A93S | inbound | Kufstein → Rosenheim |
-
----
-
-## Traffic Categories
-
-| Category | Color | Meaning |
-|----------|-------|---------|
-| 1 | 🟢 Green | Free-flowing |
-| 2 | 🟡 Yellow | Increased |
-| 3 | 🟠 Orange | Moderate congestion |
-| 4 | 🔴 Red | Heavy |
-| 5 | ⬛ Dark Red | Critical / congestion risk |
-
----
-
-## Retrain the Model from Scratch (optional)
-
-Only needed if you have access to the raw dataset from Die Autobahn GmbH.
-
-### Download the raw dataset
-
-The dataset zip is on Google Drive:
-**https://drive.google.com/file/d/1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC/view**
-
-> The file must be shared as "Anyone with the link" for the command below to work.
-> If access is restricted, download it manually from the browser and place it at the repo root as `hackathon-dataset.zip`.
+Requires the raw dataset from Die Autobahn GmbH:
 
 ```bash
 pip install gdown
 gdown "1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC" -O hackathon-dataset.zip
 unzip -o hackathon-dataset.zip -d .
+
+PYTHONPATH=backend python3 scripts/clean_data.py
+PYTHONPATH=backend python3 scripts/build_features.py
+PYTHONPATH=backend python3 scripts/train_model.py
+PYTHONPATH=backend python3 scripts/process_historical.py
 ```
-
-Expected structure after extraction:
-```
-data/raw/
-├── DAUZ_2+0_1h_2023-2026/          ← 12 hourly traffic CSVs
-├── 2023-2025_1min_2+0_v/           ← 12 minute-level CSVs (large)
-├── lt und fbt/                      ← temperature CSVs
-└── A8_A93_MQ_locations.csv
-```
-
-### Run the pipeline
-
-```bash
-# Run from repo root, in order:
-PYTHONPATH=backend backend/.venv/bin/python scripts/clean_data.py
-PYTHONPATH=backend backend/.venv/bin/python scripts/build_features.py
-PYTHONPATH=backend backend/.venv/bin/python scripts/train_model.py
-# → generates models/prediction_pipeline.joblib
-```
-
-Each step prints progress. Step 3 takes ~2–3 minutes.
-
----
-
-## Git Workflow
-
-```bash
-# Always work on dev
-git checkout dev
-
-git add <files>
-git commit -m "feat: description"
-git push origin dev
-
-# To update main:
-git checkout main
-git merge dev
-git push origin main
-```
-
----
-
-## Documentation
-
-| File | Purpose |
-|------|---------|
-| [CLAUDE.md](CLAUDE.md) | Claude Code context for AI-assisted development |
-| [docs/API.md](docs/API.md) | Full endpoint request/response schemas |
-| [docs/MODEL_CONTRACT.md](docs/MODEL_CONTRACT.md) | 25 model features, bundle structure |
-| [docs/DATA_STRUCTURE.md](docs/DATA_STRUCTURE.md) | Raw CSV schemas, parsing quirks |
-| [docs/THEME_SPECIFIC.md](docs/THEME_SPECIFIC.md) | Challenge brief + success criteria |
 
 ---
 

@@ -180,30 +180,6 @@ CATEGORY_META: dict[int, dict[str, str]] = {
 }
 
 
-def assign_category(volume: float, thresholds: list[float]) -> int:
-    """Map a vehicle volume to a traffic category 1-5 using 4 percentile thresholds."""
-    return 1 + sum(1 for t in thresholds if volume >= t)
-
-
-def category_confidence(volume: float, thresholds: list[float]) -> float:
-    """
-    Derive a confidence score (0.5-0.95) from how far the predicted volume sits
-    from the nearest category boundary. A prediction deep inside a category band
-    is confident; one sitting right on a boundary is not.
-    """
-    cat = assign_category(volume, thresholds)
-    # Build the band [lo, hi] the volume falls into
-    bounds = [0.0, *thresholds, max(thresholds[-1] * 1.5, volume + 1)]
-    lo, hi = bounds[cat - 1], bounds[cat]
-    band = hi - lo
-    if band <= 0:
-        return 0.7
-    dist_to_edge = min(volume - lo, hi - volume)
-    # Normalise: at the centre -> 1.0, on the edge -> 0.0
-    rel = max(0.0, min(1.0, dist_to_edge / (band / 2)))
-    return round(0.5 + 0.45 * rel, 2)
-
-
 # ---------------------------------------------------------------------------
 # Core feature computation
 # ---------------------------------------------------------------------------
@@ -263,7 +239,7 @@ def _is_bridge_day(d: date) -> bool:
     tomorrow = d + timedelta(days=1)
     yesterday_off = yesterday.weekday() >= 5 or yesterday in _BY_HOLIDAYS
     tomorrow_off = tomorrow.weekday() >= 5 or tomorrow in _BY_HOLIDAYS
-    return yesterday_off or tomorrow_off
+    return yesterday_off and tomorrow_off
 
 
 def _is_long_weekend(d: date) -> bool:
@@ -321,6 +297,12 @@ def build_feature_row(
     row["is_outbound"] = int(direction == "outbound")
     row["is_a93"] = int(corridor == "A93S")
 
+    # Cyclic encoding: December adjacent to January, Sunday adjacent to Monday
+    row["month_sin"] = math.sin(2 * math.pi * d.month / 12)
+    row["month_cos"] = math.cos(2 * math.pi * d.month / 12)
+    row["dow_sin"]   = math.sin(2 * math.pi * d.weekday() / 7)
+    row["dow_cos"]   = math.cos(2 * math.pi * d.weekday() / 7)
+
     # Historical baseline features
     key_dow = (corridor, direction, d.weekday(), time_slot)
     key_month = (corridor, direction, d.month, time_slot)
@@ -347,32 +329,38 @@ def build_feature_row(
 # ---------------------------------------------------------------------------
 
 FEATURE_COLUMNS: list[str] = [
-    "month",
-    "day_of_week",
+    # Cyclic calendar (replaces raw month/dow integers — avoids Dec→Jan gap)
+    "month_sin",
+    "month_cos",
+    "dow_sin",
+    "dow_cos",
     "week_of_year",
     "time_slot",
-    "is_weekend",
+    # Public holidays
     "is_public_holiday_de",
     "is_public_holiday_bavaria",
     "is_bridge_day",
     "is_long_weekend",
+    # School holidays
     "is_school_holiday_bavaria",
     "is_school_holiday_bw",
-    "school_holiday_overlap",
     "days_until_school_holiday",
     "days_since_school_holiday",
-    "is_summer_season",
-    "is_winter_sports_season",
+    # Seasonal events
     "is_easter_period",
     "is_christmas_period",
+    # Road context
     "is_outbound",
     "is_a93",
+    # Historical baselines (computed from train data only — dominant features)
     "hist_kfz_dow_slot",
     "hist_kfz_month_slot",
-    "hist_sv_share",
+    # Climate proxy (hardcoded monthly averages — no leakage)
     "clim_air_temp_c",
-    "is_frost_risk_month",
 ]
+# Removed: month, day_of_week (replaced by cyclic pairs), is_weekend (= dow>=5),
+# is_summer_season/is_winter_sports_season/is_frost_risk_month (= f(month)),
+# school_holiday_overlap (= by+bw sum), hist_sv_share (~8% constant)
 
 
 # ---------------------------------------------------------------------------
