@@ -86,3 +86,6 @@ logs/
 # ========================================
 *.db
 *.sqlite
+
+# Editor / assistant tooling
+.claude/

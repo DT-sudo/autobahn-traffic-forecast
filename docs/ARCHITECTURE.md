@@ -107,7 +107,6 @@ dev       ← active development (all team members commit here)
 | `docs/THEME_SPECIFIC.md` | Full dataset structure, feature list, success criteria |
 | `docs/MODEL_CONTRACT.md` | Model input/output contract with field types |
 | `docs/DATA_STRUCTURE.md` | Raw CSV columns, processing pipeline, aggregation logic |
-| `CLAUDE.md` | Mission + traffic-specific patterns and examples |
 
 ## What Never Changes
 
