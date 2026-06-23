@@ -19,7 +19,7 @@ MODEL         := models/prediction_pipeline.joblib
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help quickstart install venv deps frontend-deps data train run backend frontend
+.PHONY: help quickstart install venv deps frontend-deps data train run backend frontend check stop
 
 help:
 	@echo ''
@@ -34,6 +34,8 @@ help:
 	@echo ''
 	@echo '  make backend      Start only the API      (http://localhost:$(BACKEND_PORT))'
 	@echo '  make frontend     Start only the web UI   (http://localhost:$(FRONTEND_PORT))'
+	@echo '  make check        Verify the API is up and the model is loaded'
+	@echo '  make stop         Stop anything left listening on either port'
 	@echo ''
 
 # ---------------------------------------------------------------------------
@@ -107,4 +109,12 @@ backend:
 
 frontend:
 	cd frontend && npm run dev
+
+check:
+	@curl -fsS http://localhost:$(BACKEND_PORT)/api/health && echo '' || { echo 'Backend is not responding on :$(BACKEND_PORT)'; exit 1; }
+
+stop:
+	@lsof -ti tcp:$(BACKEND_PORT) -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
+	@lsof -ti tcp:$(FRONTEND_PORT) -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
+	@echo 'Stopped.'
 
