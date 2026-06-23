@@ -114,7 +114,7 @@ check:
 	@curl -fsS http://localhost:$(BACKEND_PORT)/api/health && echo '' || { echo 'Backend is not responding on :$(BACKEND_PORT)'; exit 1; }
 
 stop:
-	@lsof -ti tcp:$(BACKEND_PORT) -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
-	@lsof -ti tcp:$(FRONTEND_PORT) -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
-	@echo 'Stopped.'
+	@pids=$$(lsof -ti tcp:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); if [ -n "$$pids" ]; then kill $$pids && echo 'Stopped backend on :$(BACKEND_PORT)'; fi
+	@pids=$$(lsof -ti tcp:$(FRONTEND_PORT) -sTCP:LISTEN 2>/dev/null); if [ -n "$$pids" ]; then kill $$pids && echo 'Stopped frontend on :$(FRONTEND_PORT)'; fi
+	@echo 'Done.'
 
