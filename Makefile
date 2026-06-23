@@ -8,6 +8,8 @@ SHELL := /bin/bash
 
 VENV          := backend/.venv
 PY            := $(VENV)/bin/python
+BACKEND_PORT  := 8000
+FRONTEND_PORT := 8080
 DATASET_ID    := 1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC
 ARCHIVE       := hackathon-dataset.zip
 MODEL         := models/prediction_pipeline.joblib
@@ -17,17 +19,21 @@ MODEL         := models/prediction_pipeline.joblib
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help quickstart install venv deps frontend-deps data train
+.PHONY: help quickstart install venv deps frontend-deps data train run backend frontend
 
 help:
 	@echo ''
 	@echo 'Automated Traffic Forecasting - available targets'
 	@echo ''
 	@echo '  make quickstart   Full setup from a fresh clone (install + data + train)'
+	@echo '  make run          Start backend and frontend together'
 	@echo ''
 	@echo '  make install      Create the Python venv and install all dependencies'
 	@echo '  make data         Download and unpack the raw detector dataset'
 	@echo '  make train        Run the 4-step pipeline and build the model'
+	@echo ''
+	@echo '  make backend      Start only the API      (http://localhost:$(BACKEND_PORT))'
+	@echo '  make frontend     Start only the web UI   (http://localhost:$(FRONTEND_PORT))'
 	@echo ''
 
 # ---------------------------------------------------------------------------
@@ -81,4 +87,24 @@ train: deps
 	@PYTHONPATH=backend $(PY) scripts/process_historical.py
 	@echo ''
 	@echo 'Model written to $(MODEL)'
+
+# ---------------------------------------------------------------------------
+# Running
+# ---------------------------------------------------------------------------
+
+run:
+	@test -f $(MODEL) || { echo 'No trained model found. Run: make quickstart'; exit 1; }
+	@test -d frontend/node_modules || { echo 'Frontend dependencies missing. Run: make install'; exit 1; }
+	@echo 'Starting backend on :$(BACKEND_PORT) and frontend on :$(FRONTEND_PORT)  (Ctrl-C to stop both)'
+	@trap 'kill 0' EXIT INT TERM; \
+	  PYTHONPATH=backend $(PY) -m uvicorn backend.app.main:app --port $(BACKEND_PORT) & \
+	  ( cd frontend && npm run dev ) & \
+	  wait
+
+backend:
+	@test -f $(MODEL) || { echo 'No trained model found. Run: make quickstart'; exit 1; }
+	PYTHONPATH=backend $(PY) -m uvicorn backend.app.main:app --port $(BACKEND_PORT) --reload
+
+frontend:
+	cd frontend && npm run dev
 
