@@ -19,7 +19,7 @@ MODEL         := models/prediction_pipeline.joblib
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help quickstart install venv deps frontend-deps data train run backend frontend check stop
+.PHONY: help quickstart install venv deps frontend-deps data train run backend frontend check stop clean distclean
 
 help:
 	@echo ''
@@ -36,6 +36,9 @@ help:
 	@echo '  make frontend     Start only the web UI   (http://localhost:$(FRONTEND_PORT))'
 	@echo '  make check        Verify the API is up and the model is loaded'
 	@echo '  make stop         Stop anything left listening on either port'
+	@echo ''
+	@echo '  make clean        Remove generated data, model and caches'
+	@echo '  make distclean    Also remove the venv and node_modules'
 	@echo ''
 
 # ---------------------------------------------------------------------------
@@ -117,4 +120,18 @@ stop:
 	@pids=$$(lsof -ti tcp:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null); if [ -n "$$pids" ]; then kill $$pids && echo 'Stopped backend on :$(BACKEND_PORT)'; fi
 	@pids=$$(lsof -ti tcp:$(FRONTEND_PORT) -sTCP:LISTEN 2>/dev/null); if [ -n "$$pids" ]; then kill $$pids && echo 'Stopped frontend on :$(FRONTEND_PORT)'; fi
 	@echo 'Done.'
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+
+clean:
+	rm -rf data/processed/* models/*.joblib scripts/__pycache__ $(ARCHIVE) __MACOSX
+	@touch data/processed/.gitkeep models/.gitkeep
+	@echo 'Generated data and model removed. Raw data in data/raw/ kept.'
+
+distclean: clean
+	rm -rf $(VENV) frontend/node_modules frontend/.vite data/raw/*
+	@touch data/raw/.gitkeep
+	@echo 'Environment removed. Rebuild with: make quickstart'
 
