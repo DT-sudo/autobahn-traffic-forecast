@@ -7,20 +7,27 @@ SHELL := /bin/bash
 
 VENV          := backend/.venv
 PY            := $(VENV)/bin/python
+DATASET_ID    := 1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC
+ARCHIVE       := hackathon-dataset.zip
 
 # The pinned numpy/scikit-learn versions ship no wheels for Python 3.13+,
 # so prefer an interpreter we know builds. Override with: make PYTHON=/path/to/python3.12
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help install venv deps frontend-deps
+.PHONY: help install venv deps frontend-deps data
 
 help:
 	@echo ''
 	@echo 'Automated Traffic Forecasting - available targets'
 	@echo ''
 	@echo '  make install      Create the Python venv and install all dependencies'
+	@echo '  make data         Download and unpack the raw detector dataset'
 	@echo ''
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
 
 install: venv deps frontend-deps
 
@@ -32,7 +39,22 @@ deps: venv
 	@echo 'Installing Python dependencies...'
 	@$(PY) -m pip install --quiet --upgrade pip
 	@$(PY) -m pip install --quiet -r backend/requirements.txt
+	@$(PY) -m pip install --quiet gdown
 
 frontend-deps:
 	@test -d frontend/node_modules || { echo 'Installing frontend dependencies...'; cd frontend && npm install; }
+
+# ---------------------------------------------------------------------------
+# Data and model
+# ---------------------------------------------------------------------------
+
+data: deps
+	@if [ -d 'data/raw/DAUZ_2+0_1h_2023-2026' ]; then echo 'Raw data already present, skipping download.'; else \
+	  echo 'Downloading dataset (~154 MB)...'; \
+	  $(VENV)/bin/gdown '$(DATASET_ID)' -O $(ARCHIVE); \
+	  echo 'Extracting...'; \
+	  unzip -o -q $(ARCHIVE) -d .; \
+	  rm -f $(ARCHIVE); \
+	  echo 'Dataset extracted.'; \
+	fi
 
