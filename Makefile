@@ -53,8 +53,10 @@ data: deps
 	  echo 'Downloading dataset (~154 MB)...'; \
 	  $(VENV)/bin/gdown '$(DATASET_ID)' -O $(ARCHIVE); \
 	  echo 'Extracting...'; \
+	  mkdir -p data/raw; \
 	  unzip -o -q $(ARCHIVE) -d .; \
-	  rm -f $(ARCHIVE); \
-	  echo 'Dataset extracted.'; \
+	  rm -rf __MACOSX $(ARCHIVE); \
+	  mv -f 'DAUZ_2+0_1h_2023-2026' '2023-2025_1min_2+0_v' 'lt und fbt' A8_A93_MQ_locations.csv data/raw/ 2>/dev/null || true; \
+	  echo 'Raw data ready in data/raw/'; \
 	fi
 
