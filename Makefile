@@ -1,6 +1,7 @@
 # Automated Traffic Forecasting - A8 East / A93 South
 # TUM Science Hackathon 2026 - challenge by Die Autobahn GmbH des Bundes
 #
+# Quick start on a fresh clone:   make quickstart && make run
 # List every target:              make help
 
 SHELL := /bin/bash
@@ -9,25 +10,33 @@ VENV          := backend/.venv
 PY            := $(VENV)/bin/python
 DATASET_ID    := 1Z1Icu2xuuuYB9pNRG6fOnGBT5MjY3wPC
 ARCHIVE       := hackathon-dataset.zip
+MODEL         := models/prediction_pipeline.joblib
 
 # The pinned numpy/scikit-learn versions ship no wheels for Python 3.13+,
 # so prefer an interpreter we know builds. Override with: make PYTHON=/path/to/python3.12
 PYTHON ?= $(shell command -v python3.12 || command -v python3.11 || command -v python3)
 
 .DEFAULT_GOAL := help
-.PHONY: help install venv deps frontend-deps data
+.PHONY: help quickstart install venv deps frontend-deps data train
 
 help:
 	@echo ''
 	@echo 'Automated Traffic Forecasting - available targets'
 	@echo ''
+	@echo '  make quickstart   Full setup from a fresh clone (install + data + train)'
+	@echo ''
 	@echo '  make install      Create the Python venv and install all dependencies'
 	@echo '  make data         Download and unpack the raw detector dataset'
+	@echo '  make train        Run the 4-step pipeline and build the model'
 	@echo ''
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
+
+quickstart: install data train
+	@echo ''
+	@echo 'Setup complete. Start the app with:  make run'
 
 install: venv deps frontend-deps
 
@@ -59,4 +68,17 @@ data: deps
 	  mv -f 'DAUZ_2+0_1h_2023-2026' '2023-2025_1min_2+0_v' 'lt und fbt' A8_A93_MQ_locations.csv data/raw/ 2>/dev/null || true; \
 	  echo 'Raw data ready in data/raw/'; \
 	fi
+
+train: deps
+	@test -d 'data/raw/DAUZ_2+0_1h_2023-2026' || { echo 'No raw data found. Run: make data'; exit 1; }
+	@echo 'Step 1/4  cleaning raw detector files...'
+	@PYTHONPATH=backend $(PY) scripts/clean_data.py
+	@echo 'Step 2/4  building features...'
+	@PYTHONPATH=backend $(PY) scripts/build_features.py
+	@echo 'Step 3/4  training the model...'
+	@PYTHONPATH=backend $(PY) scripts/train_model.py
+	@echo 'Step 4/4  exporting historical series...'
+	@PYTHONPATH=backend $(PY) scripts/process_historical.py
+	@echo ''
+	@echo 'Model written to $(MODEL)'
 
