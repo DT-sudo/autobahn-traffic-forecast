@@ -176,6 +176,83 @@ Normalising by ratio rather than raw count is what makes the scale fair across s
 
 ---
 
+## API
+
+Interactive documentation is served at **http://localhost:8000/docs**.
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| `GET` | `/api/health` | Service status and whether the model is loaded |
+| `POST` | `/api/forecast` | Forecast for a corridor, direction and date range |
+| `GET` | `/api/calendar` | A full year, grouped by month |
+| `GET` | `/api/peak-days` | The N busiest days of a year |
+| `POST` | `/api/recommendations` | Travel advice tailored to a user type |
+| `GET` | `/api/historical` | Real measured values from 2023–2025 |
+
+```bash
+curl -X POST http://localhost:8000/api/forecast \
+  -H 'Content-Type: application/json' \
+  -d '{"corridor":"A8E","direction":"outbound","date_from":"2026-08-01","date_to":"2026-08-03"}'
+```
+
+Corridors are `A8E` and `A93S`; directions are `outbound` (toward Salzburg / Kufstein / the Alps) and `inbound` (toward Munich / Rosenheim).
+
+Full reference in [`docs/API.md`](docs/API.md).
+
+---
+
+## Technology
+
+**Backend** — Python 3.12 · FastAPI · scikit-learn · pandas · joblib
+**Frontend** — TypeScript · React 19 · TanStack Start & Router · TanStack Query · Vite 8 · Tailwind CSS 4 · shadcn/ui · Recharts
+**Model** — Gradient Boosting regressor with ratio-based category thresholds, shipped as a single `.joblib` bundle containing the pipeline, the baselines and the thresholds
+
+---
+
+## Project Structure
+
+```
+.
+├── Makefile                  ← every workflow in this README
+├── backend/
+│   ├── app/
+│   │   ├── main.py                       FastAPI entry point
+│   │   ├── api/routes.py                 all endpoints
+│   │   └── processors/
+│   │       ├── traffic_analyzer.py       forecast engine
+│   │       └── feature_builder.py        shared feature engineering
+│   └── requirements.txt
+├── frontend/
+│   └── src/
+│       ├── routes/index.tsx              calendar page
+│       └── lib/traffic.ts                API client and types
+├── scripts/
+│   ├── clean_data.py                     step 1 — clean raw detector files
+│   ├── build_features.py                 step 2 — slot aggregation + features
+│   ├── train_model.py                    step 3 — train and export the bundle
+│   └── process_historical.py             step 4 — export measured history
+├── data/
+│   ├── raw/                              source dataset (not in git)
+│   └── processed/                        pipeline output (not in git)
+├── models/
+│   └── prediction_pipeline.joblib        trained bundle (not in git)
+└── docs/                                 API, model contract, data structure
+```
+
+Datasets and trained models are deliberately kept out of version control; `make quickstart` reproduces both from scratch.
+
+---
+
+## Known Limitations
+
+- **No incident awareness.** Accidents, roadworks and one-off closures are invisible to the model, which forecasts the *typical* day for a given date.
+- **School-holiday calendar is hardcoded through 2026.** Forecasts beyond that degrade gradually rather than failing.
+- **No growth trend.** 2026 is assumed to resemble 2023–2025; no traffic-growth or population term is modelled.
+- **Unequal slot lengths.** Slot 1 spans six hours and slot 6 only two, so raw counts are not directly comparable across slots. Ratio normalisation compensates, but uniform four-hour slots would be cleaner.
+- **Weather is climatological, not forecast.** `clim_air_temp_c` is a monthly average, not a real prediction — a genuine forecast feed would likely improve winter accuracy.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
