@@ -13,6 +13,7 @@
 | **Challenge partner** | **Die Autobahn GmbH des Bundes** — the German federal motorway operator, responsible for the entire ~13,000 km Autobahn network |
 | **Challenge** | Automated Traffic Forecasting for Alpine Holiday Corridors A8 East & A93 South |
 | **Data** | Proprietary loop-detector measurements, 2023–2025, provided by the challenge partner |
+| **Pitch deck** | [`presentation/presentation.pdf`](presentation/presentation.pdf) — the five slides presented at the hackathon |
 
 Die Autobahn GmbH publishes an annual **Traffic Calendar** that tells millions of travellers which days on the Alpine holiday routes will be congested. It is compiled **by hand, by domain experts**, every year.
 
