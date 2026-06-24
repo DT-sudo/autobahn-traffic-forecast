@@ -105,6 +105,77 @@ The frontend dev server runs on **port 8080** (configured by the Lovable Vite pr
 
 ---
 
+## How the Model Works
+
+### 1. From raw detectors to time slots
+
+Twelve loop-detector stations across the two corridors and both directions record vehicle counts every hour (`kfz_h` = all vehicles, `sv_h` = heavy goods vehicles). Cleaning drops negative counts and per-hour outliers above the 99.9th percentile, then stacks all stations into **283,160 hourly rows** covering 2023-01-01 → 2025-12-31.
+
+Each day is then divided into six slots — `00–06`, `06–10`, `10–14`, `14–18`, `18–22`, `22–24` — with counts **summed** inside a slot and averaged across stations on the same corridor and direction. Slots missing more than 25% of their hours are dropped. Result: **25,740 slot-level rows**.
+
+### 2. Historical baselines
+
+Three averages are computed from training data only and stored inside the model bundle:
+
+- `by_dow_slot` — mean volume per (corridor, direction, day-of-week, slot): the weekly rhythm
+- `by_month_slot` — mean volume per (corridor, direction, month, slot): seasonality
+- `by_slot` — mean volume per (corridor, direction, slot) across all months
+
+### 3. Features
+
+**21 features**, all derivable from a calendar date — which is precisely why the model can forecast a year ahead without any live data:
+
+| Group | Features |
+|-------|----------|
+| **Cyclical calendar** | `month_sin`, `month_cos`, `dow_sin`, `dow_cos`, `week_of_year`, `time_slot` |
+| **Public holidays** | `is_public_holiday_de`, `is_public_holiday_bavaria`, `is_bridge_day`, `is_long_weekend` |
+| **School holidays** | `is_school_holiday_bavaria`, `is_school_holiday_bw`, `days_until_school_holiday`, `days_since_school_holiday` |
+| **Seasonal events** | `is_easter_period`, `is_christmas_period` |
+| **Road context** | `is_outbound`, `is_a93` |
+| **Historical baselines** | `hist_kfz_dow_slot`, `hist_kfz_month_slot` |
+| **Weather proxy** | `clim_air_temp_c` |
+
+Month and weekday are encoded as sine/cosine pairs so the model understands that December is adjacent to January and Sunday is adjacent to Monday, rather than treating them as distant integers.
+
+### 4. Training and honest validation
+
+A **Gradient Boosting regressor** (`StandardScaler → GradientBoostingRegressor`) predicts raw vehicle volume per slot.
+
+Validation is **out-of-time, not a random split**: the model trains on **2023–2024** and is tested on the entirely unseen **2025**. This is the harder and more honest evaluation — it measures exactly what the system is asked to do in production, namely forecast a year it has never observed.
+
+| Metric | Value |
+|--------|-------|
+| Training rows | 17,507 (2023–2024) |
+| Test rows | 8,233 (2025, held out entirely) |
+| MAE | 558 vehicles per slot |
+| RMSE | 938 |
+| MAPE | 13.0% |
+| R² | **0.923** |
+
+Feature importance is dominated by the two historical baselines — `hist_kfz_month_slot` (57%) and `hist_kfz_dow_slot` (38%) — with the calendar and holiday features supplying the corrections that matter on exactly the days the Traffic Calendar exists to warn about.
+
+### 5. Turning volume into a colour
+
+Rather than classifying colours directly, the system predicts volume and then compares it to what is *normal* for that exact corridor, direction, month and slot:
+
+```
+ratio = predicted_volume / hist_kfz_month_slot
+```
+
+Thresholds derived from the training distribution map that ratio onto the five categories:
+
+| Category | Colour | Ratio | Meaning |
+|----------|--------|-------|---------|
+| 1 | 🟢 Green | < 0.96 | Below normal |
+| 2 | 🟡 Yellow | 0.96 – 1.08 | Slightly above normal |
+| 3 | 🟠 Orange | 1.08 – 1.27 | Noticeably above normal |
+| 4 | 🔴 Red | 1.27 – 1.60 | Top ~12% of days |
+| 5 | ⬛ Dark red | > 1.60 | Top ~3% — extreme |
+
+Normalising by ratio rather than raw count is what makes the scale fair across slots: a 6-hour night window and a 4-hour afternoon window are each judged against their own norm.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
